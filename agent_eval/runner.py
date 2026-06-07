@@ -127,14 +127,24 @@ class Iterator:
                     elapsed,
                 )
 
-                if result.status == RunStatus.CRASHED and attempt < max_infra_retries:
-                    logger.warning(
-                        "Dataset %s run %d attempt %d CRASHED — retrying.",
-                        dataset.id,
-                        run_index,
-                        attempt,
-                    )
-                    continue
+                if result.status == RunStatus.CRASHED:
+                    if attempt < max_infra_retries:
+                        logger.warning(
+                            "Dataset %s run %d attempt %d CRASHED — retrying.",
+                            dataset.id,
+                            run_index,
+                            attempt,
+                        )
+                        continue
+                    else:
+                        # Retries exhausted by infra CRASH — exclude from scoring
+                        logger.error(
+                            "Dataset %s run %d CRASHED on all %d attempt(s) — recording as infra failure.",
+                            dataset.id,
+                            run_index,
+                            max_infra_retries + 1,
+                        )
+                        return None, None
 
                 self._save_trajectory(result, output_dir)
                 return result, output_dir
