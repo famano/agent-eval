@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.backends.legacy:build"
+
+[project]
+name = "agent-eval"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+    "anthropic>=0.30.0",
+]
+
+[project.optional-dependencies]
+docx = ["python-docx>=1.1"]
+pdf  = ["pdfminer.six>=20221105"]
+dev  = ["pytest>=8", "mypy>=1.10"]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["agent_eval*"]
