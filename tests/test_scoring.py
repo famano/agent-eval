@@ -14,10 +14,11 @@ What we verify (treating scoring as a black box):
   - Cost / latency summary statistics are populated when RunResult data is present.
   - SuiteReport.print_summary() runs without error and prints dataset_id.
 """
+
 from __future__ import annotations
 
-import math
 import io
+import math
 from contextlib import redirect_stdout
 from pathlib import Path
 
@@ -27,32 +28,40 @@ from agent_eval.models import (
     Criterion,
     Dataset,
     EvalError,
-    EvaluationResult,
-    CriterionResult,
     RunResult,
     RunStatus,
     Verdict,
 )
 from agent_eval.runner import DatasetReport
 from agent_eval.scoring import (
-    DatasetStats,
-    RunMetrics,
     SuiteReport,
     aggregate_dataset,
     compute_run_metrics,
 )
 from tests.conftest import make_eval_result, make_run_result
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture()
 def two_criteria() -> list[Criterion]:
     return [
-        Criterion(id="c_must", description="must", importance="must", weight=2.0, tags=["legal"]),
-        Criterion(id="c_should", description="should", importance="should", weight=1.0, tags=["financial"]),
+        Criterion(
+            id="c_must",
+            description="must",
+            importance="must",
+            weight=2.0,
+            tags=["legal"],
+        ),
+        Criterion(
+            id="c_should",
+            description="should",
+            importance="should",
+            weight=1.0,
+            tags=["financial"],
+        ),
     ]
 
 
@@ -76,39 +85,54 @@ def simple_dataset(tmp_path: Path, two_criteria: list[Criterion]) -> Dataset:
 # compute_run_metrics — coverage formula
 # ---------------------------------------------------------------------------
 
+
 class TestCoverageFormula:
     def test_all_met_gives_coverage_one(self, two_criteria: list[Criterion]) -> None:
         er = make_eval_result(verdicts={"c_must": Verdict.MET, "c_should": Verdict.MET})
         m = compute_run_metrics(er, two_criteria)
         assert math.isclose(m.coverage, 1.0)
 
-    def test_all_not_met_gives_coverage_zero(self, two_criteria: list[Criterion]) -> None:
-        er = make_eval_result(verdicts={"c_must": Verdict.NOT_MET, "c_should": Verdict.NOT_MET})
+    def test_all_not_met_gives_coverage_zero(
+        self, two_criteria: list[Criterion]
+    ) -> None:
+        er = make_eval_result(
+            verdicts={"c_must": Verdict.NOT_MET, "c_should": Verdict.NOT_MET}
+        )
         m = compute_run_metrics(er, two_criteria)
         assert math.isclose(m.coverage, 0.0)
 
     def test_contradicted_counts_as_zero(self, two_criteria: list[Criterion]) -> None:
-        er = make_eval_result(verdicts={"c_must": Verdict.CONTRADICTED, "c_should": Verdict.NOT_MET})
+        er = make_eval_result(
+            verdicts={"c_must": Verdict.CONTRADICTED, "c_should": Verdict.NOT_MET}
+        )
         m = compute_run_metrics(er, two_criteria)
         assert math.isclose(m.coverage, 0.0)
 
     def test_partial_counts_as_half(self, two_criteria: list[Criterion]) -> None:
         """Only the should criterion (weight=1) is PARTIAL; must (weight=2) is MET.
         Expected: (2*1.0 + 1*0.5) / (2+1) = 2.5/3 ≈ 0.8333"""
-        er = make_eval_result(verdicts={"c_must": Verdict.MET, "c_should": Verdict.PARTIAL})
+        er = make_eval_result(
+            verdicts={"c_must": Verdict.MET, "c_should": Verdict.PARTIAL}
+        )
         m = compute_run_metrics(er, two_criteria)
         expected = (2 * 1.0 + 1 * 0.5) / 3.0
         assert math.isclose(m.coverage, expected, rel_tol=1e-6)
 
     def test_must_weight_dominates(self, two_criteria: list[Criterion]) -> None:
         """must(w=2) MET, should(w=1) NOT_MET → coverage = 2/3 > 0.5"""
-        er = make_eval_result(verdicts={"c_must": Verdict.MET, "c_should": Verdict.NOT_MET})
+        er = make_eval_result(
+            verdicts={"c_must": Verdict.MET, "c_should": Verdict.NOT_MET}
+        )
         m = compute_run_metrics(er, two_criteria)
         assert m.coverage > 0.5
 
-    def test_should_only_met_gives_less_than_must(self, two_criteria: list[Criterion]) -> None:
+    def test_should_only_met_gives_less_than_must(
+        self, two_criteria: list[Criterion]
+    ) -> None:
         """should(w=1) MET, must(w=2) NOT_MET → coverage = 1/3 < 0.5"""
-        er = make_eval_result(verdicts={"c_must": Verdict.NOT_MET, "c_should": Verdict.MET})
+        er = make_eval_result(
+            verdicts={"c_must": Verdict.NOT_MET, "c_should": Verdict.MET}
+        )
         m = compute_run_metrics(er, two_criteria)
         assert m.coverage < 0.5
 
@@ -126,6 +150,7 @@ class TestCoverageFormula:
 # ---------------------------------------------------------------------------
 # compute_run_metrics — error severity counts
 # ---------------------------------------------------------------------------
+
 
 class TestErrorSeverityCounts:
     def test_no_errors(self, two_criteria: list[Criterion]) -> None:
@@ -161,6 +186,7 @@ class TestErrorSeverityCounts:
 # compute_run_metrics — run cost/latency propagation
 # ---------------------------------------------------------------------------
 
+
 class TestRunMetricsPropagation:
     def test_cost_latency_from_run_result(self, two_criteria: list[Criterion]) -> None:
         er = make_eval_result()
@@ -182,6 +208,7 @@ class TestRunMetricsPropagation:
 # aggregate_dataset — basic statistics
 # ---------------------------------------------------------------------------
 
+
 def _build_report(
     dataset: Dataset,
     verdicts_per_run: list[dict[str, Verdict]],
@@ -194,14 +221,16 @@ def _build_report(
         dataset_id=dataset.id,
         n_requested=len(verdicts_per_run),
     )
-    for i, (vd, errs) in enumerate(zip(verdicts_per_run, errors_per_run)):
+    for i, (vd, errs) in enumerate(zip(verdicts_per_run, errors_per_run, strict=True)):
         report.runs.append(make_run_result())
-        report.eval_results.append(make_eval_result(
-            dataset_id=dataset.id,
-            run_index=i,
-            verdicts=vd,
-            errors=errs,
-        ))
+        report.eval_results.append(
+            make_eval_result(
+                dataset_id=dataset.id,
+                run_index=i,
+                verdicts=vd,
+                errors=errs,
+            )
+        )
     if extra_runs:
         report.runs.extend(extra_runs)
     if infra_failures:
@@ -218,34 +247,26 @@ class TestAggregateDatasetCoverage:
         stats = aggregate_dataset(report, simple_dataset)
         assert math.isclose(stats.coverage.mean, 1.0)
 
-    def test_mean_coverage_all_zero(
-        self, simple_dataset: Dataset
-    ) -> None:
+    def test_mean_coverage_all_zero(self, simple_dataset: Dataset) -> None:
         all_nm = {"c_must": Verdict.NOT_MET, "c_should": Verdict.NOT_MET}
         report = _build_report(simple_dataset, [all_nm] * 4)
         stats = aggregate_dataset(report, simple_dataset)
         assert math.isclose(stats.coverage.mean, 0.0)
 
-    def test_std_zero_when_all_runs_identical(
-        self, simple_dataset: Dataset
-    ) -> None:
+    def test_std_zero_when_all_runs_identical(self, simple_dataset: Dataset) -> None:
         all_met = {"c_must": Verdict.MET, "c_should": Verdict.MET}
         report = _build_report(simple_dataset, [all_met] * 4)
         stats = aggregate_dataset(report, simple_dataset)
         assert math.isclose(stats.coverage.std, 0.0, abs_tol=1e-9)
 
-    def test_std_nonzero_with_varying_runs(
-        self, simple_dataset: Dataset
-    ) -> None:
+    def test_std_nonzero_with_varying_runs(self, simple_dataset: Dataset) -> None:
         all_met = {"c_must": Verdict.MET, "c_should": Verdict.MET}
         all_nm = {"c_must": Verdict.NOT_MET, "c_should": Verdict.NOT_MET}
         report = _build_report(simple_dataset, [all_met, all_nm, all_met, all_nm])
         stats = aggregate_dataset(report, simple_dataset)
         assert stats.coverage.std > 0.0
 
-    def test_ci_contains_mean(
-        self, simple_dataset: Dataset
-    ) -> None:
+    def test_ci_contains_mean(self, simple_dataset: Dataset) -> None:
         all_met = {"c_must": Verdict.MET, "c_should": Verdict.MET}
         all_nm = {"c_must": Verdict.NOT_MET, "c_should": Verdict.NOT_MET}
         report = _build_report(simple_dataset, [all_met, all_nm] * 3)
@@ -265,6 +286,7 @@ class TestAggregateDatasetCoverage:
 # aggregate_dataset — pass@k
 # ---------------------------------------------------------------------------
 
+
 class TestPassAtK:
     def test_pass_at_1_equals_fraction_above_threshold(
         self, simple_dataset: Dataset
@@ -274,12 +296,12 @@ class TestPassAtK:
         all_nm = {"c_must": Verdict.NOT_MET, "c_should": Verdict.NOT_MET}
         # 3 out of 6 pass (coverage=1.0 > threshold=0.7)
         report = _build_report(simple_dataset, [all_met] * 3 + [all_nm] * 3)
-        stats = aggregate_dataset(report, simple_dataset, coverage_threshold=0.7, pass_at_ks=[1])
+        stats = aggregate_dataset(
+            report, simple_dataset, coverage_threshold=0.7, pass_at_ks=[1]
+        )
         assert 0.0 <= stats.pass_at_k[1] <= 1.0
 
-    def test_pass_at_k_increases_with_k(
-        self, simple_dataset: Dataset
-    ) -> None:
+    def test_pass_at_k_increases_with_k(self, simple_dataset: Dataset) -> None:
         all_met = {"c_must": Verdict.MET, "c_should": Verdict.MET}
         all_nm = {"c_must": Verdict.NOT_MET, "c_should": Verdict.NOT_MET}
         report = _build_report(simple_dataset, [all_met] * 2 + [all_nm] * 3)
@@ -291,21 +313,21 @@ class TestPassAtK:
         if 3 in stats.pass_at_k and 5 in stats.pass_at_k:
             assert stats.pass_at_k[3] <= stats.pass_at_k[5]
 
-    def test_pass_at_k_one_when_all_pass(
-        self, simple_dataset: Dataset
-    ) -> None:
+    def test_pass_at_k_one_when_all_pass(self, simple_dataset: Dataset) -> None:
         all_met = {"c_must": Verdict.MET, "c_should": Verdict.MET}
         report = _build_report(simple_dataset, [all_met] * 5)
-        stats = aggregate_dataset(report, simple_dataset, coverage_threshold=0.7, pass_at_ks=[1, 3])
+        stats = aggregate_dataset(
+            report, simple_dataset, coverage_threshold=0.7, pass_at_ks=[1, 3]
+        )
         for k, v in stats.pass_at_k.items():
             assert math.isclose(v, 1.0), f"pass@{k} should be 1.0"
 
-    def test_pass_at_k_zero_when_none_pass(
-        self, simple_dataset: Dataset
-    ) -> None:
+    def test_pass_at_k_zero_when_none_pass(self, simple_dataset: Dataset) -> None:
         all_nm = {"c_must": Verdict.NOT_MET, "c_should": Verdict.NOT_MET}
         report = _build_report(simple_dataset, [all_nm] * 5)
-        stats = aggregate_dataset(report, simple_dataset, coverage_threshold=0.7, pass_at_ks=[1, 3])
+        stats = aggregate_dataset(
+            report, simple_dataset, coverage_threshold=0.7, pass_at_ks=[1, 3]
+        )
         for k, v in stats.pass_at_k.items():
             assert math.isclose(v, 0.0), f"pass@{k} should be 0.0"
 
@@ -314,10 +336,9 @@ class TestPassAtK:
 # aggregate_dataset — critical error rate
 # ---------------------------------------------------------------------------
 
+
 class TestCriticalErrorRate:
-    def test_zero_when_no_critical_errors(
-        self, simple_dataset: Dataset
-    ) -> None:
+    def test_zero_when_no_critical_errors(self, simple_dataset: Dataset) -> None:
         all_met = {"c_must": Verdict.MET, "c_should": Verdict.MET}
         report = _build_report(simple_dataset, [all_met] * 4)
         stats = aggregate_dataset(report, simple_dataset)
@@ -327,7 +348,9 @@ class TestCriticalErrorRate:
         self, simple_dataset: Dataset
     ) -> None:
         all_met = {"c_must": Verdict.MET, "c_should": Verdict.MET}
-        critical = [EvalError(type="contradiction", severity="critical", description="c")]
+        critical = [
+            EvalError(type="contradiction", severity="critical", description="c")
+        ]
         report = _build_report(
             simple_dataset,
             [all_met] * 3,
@@ -336,11 +359,11 @@ class TestCriticalErrorRate:
         stats = aggregate_dataset(report, simple_dataset)
         assert math.isclose(stats.critical_error_rate, 1.0)
 
-    def test_partial_critical_error_rate(
-        self, simple_dataset: Dataset
-    ) -> None:
+    def test_partial_critical_error_rate(self, simple_dataset: Dataset) -> None:
         all_met = {"c_must": Verdict.MET, "c_should": Verdict.MET}
-        critical = [EvalError(type="contradiction", severity="critical", description="c")]
+        critical = [
+            EvalError(type="contradiction", severity="critical", description="c")
+        ]
         report = _build_report(
             simple_dataset,
             [all_met] * 4,
@@ -354,13 +377,13 @@ class TestCriticalErrorRate:
 # aggregate_dataset — infra failure accounting
 # ---------------------------------------------------------------------------
 
+
 class TestInfraFailureAccounting:
-    def test_infra_failures_counted(
-        self, simple_dataset: Dataset
-    ) -> None:
+    def test_infra_failures_counted(self, simple_dataset: Dataset) -> None:
         all_met = {"c_must": Verdict.MET, "c_should": Verdict.MET}
         report = _build_report(
-            simple_dataset, [all_met] * 2,
+            simple_dataset,
+            [all_met] * 2,
             infra_failures=[{"run_index": 2, "reason": "crash"}] * 3,
         )
         stats = aggregate_dataset(report, simple_dataset)
@@ -371,15 +394,14 @@ class TestInfraFailureAccounting:
     ) -> None:
         all_met = {"c_must": Verdict.MET, "c_should": Verdict.MET}
         report = _build_report(
-            simple_dataset, [all_met] * 2,
+            simple_dataset,
+            [all_met] * 2,
             infra_failures=[{"run_index": 2, "reason": "crash"}],
         )
         stats = aggregate_dataset(report, simple_dataset)
         assert stats.n_runs_evaluated == 2
 
-    def test_timeout_counted_separately(
-        self, simple_dataset: Dataset
-    ) -> None:
+    def test_timeout_counted_separately(self, simple_dataset: Dataset) -> None:
         all_met = {"c_must": Verdict.MET, "c_should": Verdict.MET}
         timeout_run = make_run_result(status=RunStatus.TIMEOUT)
         report = _build_report(simple_dataset, [all_met] * 2, extra_runs=[timeout_run])
@@ -390,6 +412,7 @@ class TestInfraFailureAccounting:
 # ---------------------------------------------------------------------------
 # aggregate_dataset — per-tag coverage
 # ---------------------------------------------------------------------------
+
 
 class TestPerTagCoverage:
     def test_tag_coverage_present_for_tagged_criteria(
@@ -402,9 +425,7 @@ class TestPerTagCoverage:
         assert "legal" in stats.per_tag_coverage
         assert "financial" in stats.per_tag_coverage
 
-    def test_tag_coverage_reflects_verdict(
-        self, simple_dataset: Dataset
-    ) -> None:
+    def test_tag_coverage_reflects_verdict(self, simple_dataset: Dataset) -> None:
         """'legal' tag → c_must (MET=1.0); 'financial' tag → c_should (NOT_MET=0.0)."""
         verdicts = {"c_must": Verdict.MET, "c_should": Verdict.NOT_MET}
         report = _build_report(simple_dataset, [verdicts] * 4)
@@ -435,15 +456,20 @@ class TestPerTagCoverage:
 # aggregate_dataset — cost / latency summaries
 # ---------------------------------------------------------------------------
 
+
 class TestCostLatencyStats:
     def test_cost_stats_populated(self, simple_dataset: Dataset) -> None:
         all_met = {"c_must": Verdict.MET, "c_should": Verdict.MET}
         report = DatasetReport(dataset_id=simple_dataset.id, n_requested=3)
         for i in range(3):
-            report.runs.append(make_run_result(cost_usd=0.1 * (i + 1), latency_s=float(i + 1)))
-            report.eval_results.append(make_eval_result(
-                dataset_id=simple_dataset.id, run_index=i, verdicts=all_met
-            ))
+            report.runs.append(
+                make_run_result(cost_usd=0.1 * (i + 1), latency_s=float(i + 1))
+            )
+            report.eval_results.append(
+                make_eval_result(
+                    dataset_id=simple_dataset.id, run_index=i, verdicts=all_met
+                )
+            )
         stats = aggregate_dataset(report, simple_dataset)
         assert "mean" in stats.cost_stats
         assert stats.cost_stats["mean"] > 0
@@ -453,17 +479,24 @@ class TestCostLatencyStats:
         report = DatasetReport(dataset_id=simple_dataset.id, n_requested=3)
         for i in range(3):
             report.runs.append(make_run_result(latency_s=float(i + 1)))
-            report.eval_results.append(make_eval_result(
-                dataset_id=simple_dataset.id, run_index=i, verdicts=all_met
-            ))
+            report.eval_results.append(
+                make_eval_result(
+                    dataset_id=simple_dataset.id, run_index=i, verdicts=all_met
+                )
+            )
         stats = aggregate_dataset(report, simple_dataset)
         assert "mean" in stats.latency_stats
-        assert stats.latency_stats["min"] <= stats.latency_stats["mean"] <= stats.latency_stats["max"]
+        assert (
+            stats.latency_stats["min"]
+            <= stats.latency_stats["mean"]
+            <= stats.latency_stats["max"]
+        )
 
 
 # ---------------------------------------------------------------------------
 # SuiteReport.print_summary()
 # ---------------------------------------------------------------------------
+
 
 class TestSuiteReport:
     def test_print_summary_runs_without_error(self, simple_dataset: Dataset) -> None:

@@ -1,11 +1,11 @@
 """LLM-based evaluator with per-criterion scoring and calibration gate."""
+
 from __future__ import annotations
 
 import json
 import logging
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal, Protocol
 
 import anthropic
 
@@ -24,6 +24,7 @@ logger = logging.getLogger(__name__)
 # Text extraction helpers
 # ---------------------------------------------------------------------------
 
+
 def _extract_text(path: Path) -> str:
     """Return plain text from a file. Handles .txt / .md natively; others need
     external libs (docx, pdf) — install as needed."""
@@ -32,7 +33,8 @@ def _extract_text(path: Path) -> str:
         return path.read_text(encoding="utf-8", errors="replace")
     if suffix == ".docx":
         try:
-            import docx  # type: ignore
+            import docx
+
             doc = docx.Document(str(path))
             return "\n".join(p.text for p in doc.paragraphs)
         except ImportError:
@@ -40,8 +42,9 @@ def _extract_text(path: Path) -> str:
             return path.read_text(encoding="utf-8", errors="replace")
     if suffix == ".pdf":
         try:
-            import pdfminer.high_level as pdf  # type: ignore
-            return pdf.extract_text(str(path))
+            import pdfminer.high_level as pdf
+
+            return str(pdf.extract_text(str(path)))
         except ImportError:
             logger.warning("pdfminer.six not installed; reading %s as text", path)
             return path.read_text(encoding="utf-8", errors="replace")
@@ -59,6 +62,7 @@ def _load_files(paths: list[Path]) -> str:
 # ---------------------------------------------------------------------------
 # Calibration result
 # ---------------------------------------------------------------------------
+
 
 @dataclass
 class CalibrationResult:
@@ -137,6 +141,7 @@ Reply with raw JSON only, no markdown fences."""
 # LLM Evaluator
 # ---------------------------------------------------------------------------
 
+
 class LLMEvaluator:
     """Evaluates agent output against criteria using an Anthropic LLM as judge.
 
@@ -173,7 +178,7 @@ class LLMEvaluator:
             max_tokens=512,
             messages=[{"role": "user", "content": prompt}],
         )
-        return response.content[0].text.strip()
+        return str(response.content[0].text).strip()
 
     def _score_criterion(
         self,
@@ -200,7 +205,9 @@ class LLMEvaluator:
                 verdict = Verdict(data["verdict"])
                 rationale = data.get("rationale", "")
             except Exception as exc:
-                logger.warning("Failed to parse criterion verdict: %s — raw: %s", exc, raw)
+                logger.warning(
+                    "Failed to parse criterion verdict: %s — raw: %s", exc, raw
+                )
                 verdict = Verdict.NOT_MET
                 rationale = f"Parse error: {exc}"
             verdicts.append(verdict)
@@ -209,7 +216,7 @@ class LLMEvaluator:
         # majority vote
         final_verdict = max(set(verdicts), key=verdicts.count)
         # pick rationale matching the majority verdict
-        for v, r in zip(verdicts, rationales):
+        for v, r in zip(verdicts, rationales, strict=True):
             if v == final_verdict:
                 final_rationale = r
                 break
@@ -297,7 +304,9 @@ class LLMEvaluator:
         errors = self._detect_errors(reference_text, reference_text)
         critical_errors = [e for e in errors if e.severity == "critical"]
 
-        met_fraction = (len(dataset.criteria) - len(unmet)) / max(len(dataset.criteria), 1)
+        met_fraction = (len(dataset.criteria) - len(unmet)) / max(
+            len(dataset.criteria), 1
+        )
         passed = met_fraction >= self.calibration_threshold and not critical_errors
 
         msg = (

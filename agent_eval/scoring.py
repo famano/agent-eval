@@ -4,25 +4,22 @@ Two reporting axes (as per design):
   - Coverage (recall-like): weighted criterion satisfaction rate
   - Soundness (precision-like): error counts by severity
 """
+
 from __future__ import annotations
 
 import math
 import random
 from dataclasses import dataclass, field
-from typing import Literal
 
 from .models import (
     Criterion,
-    CriterionResult,
     Dataset,
-    EvalError,
     EvaluationResult,
     RunResult,
     RunStatus,
     Verdict,
 )
 from .runner import DatasetReport
-
 
 # ---------------------------------------------------------------------------
 # Per-run metrics
@@ -39,7 +36,7 @@ _VERDICT_SCORE: dict[Verdict, float] = {
 @dataclass
 class RunMetrics:
     run_index: int
-    coverage: float                         # weighted satisfaction rate [0, 1]
+    coverage: float  # weighted satisfaction rate [0, 1]
     critical_error_count: int
     major_error_count: int
     minor_error_count: int
@@ -87,6 +84,7 @@ def compute_run_metrics(
 # Bootstrap CI
 # ---------------------------------------------------------------------------
 
+
 def _bootstrap_ci(
     values: list[float],
     n_bootstrap: int = 1000,
@@ -97,7 +95,7 @@ def _bootstrap_ci(
     lo_p = (1 - ci) / 2
     hi_p = 1 - lo_p
     samples = [
-        sum(random.choices(values, k=len(values))) / len(values)
+        sum(random.choices(values, k=len(values))) / len(values)  # nosec B311
         for _ in range(n_bootstrap)
     ]
     samples.sort()
@@ -109,6 +107,7 @@ def _bootstrap_ci(
 # ---------------------------------------------------------------------------
 # Dataset-level statistics
 # ---------------------------------------------------------------------------
+
 
 @dataclass
 class CoverageStats:
@@ -127,8 +126,8 @@ class DatasetStats:
     n_infra_failures: int
     n_timeout_or_budget: int
     coverage: CoverageStats
-    pass_at_k: dict[int, float]             # e.g. {1: 0.7, 3: 0.9}
-    all_pass_rate: float                    # fraction of runs above threshold
+    pass_at_k: dict[int, float]  # e.g. {1: 0.7, 3: 0.9}
+    all_pass_rate: float  # fraction of runs above threshold
     critical_error_rate: float
     per_tag_coverage: dict[str, CoverageStats] = field(default_factory=dict)
     cost_stats: dict[str, float] = field(default_factory=dict)
@@ -145,12 +144,6 @@ def aggregate_dataset(
     if pass_at_ks is None:
         pass_at_ks = [1, 3, 5]
 
-    run_map: dict[int, RunResult] = {
-        r.run_index: r  # type: ignore[attr-defined]
-        for r in report.runs
-        if hasattr(r, "run_index")
-    }
-    # Rebuild run_map by position since RunResult has no run_index
     # runner stores runs in order; align by eval_result.run_index
     run_list = report.runs  # ordered
 
@@ -175,7 +168,8 @@ def aggregate_dataset(
     n_eval = len(metrics)
     n_infra = len(report.infra_failures)
     n_to_budget = sum(
-        1 for r in run_list
+        1
+        for r in run_list
         if r.status in (RunStatus.TIMEOUT, RunStatus.BUDGET_EXCEEDED)
     )
 
@@ -192,9 +186,7 @@ def aggregate_dataset(
 
     n_pass = sum(above)
     pass_at_k_dict = {
-        k: _pass_at_k(len(above), n_pass, k)
-        for k in pass_at_ks
-        if k <= len(above)
+        k: _pass_at_k(len(above), n_pass, k) for k in pass_at_ks if k <= len(above)
     }
 
     critical_error_rate = (
@@ -218,9 +210,15 @@ def aggregate_dataset(
     per_tag: dict[str, CoverageStats] = {}
     for tag, scores in tag_coverages.items():
         tmean = sum(scores) / len(scores)
-        tstd = math.sqrt(sum((s - tmean) ** 2 for s in scores) / len(scores)) if len(scores) > 1 else 0.0
+        tstd = (
+            math.sqrt(sum((s - tmean) ** 2 for s in scores) / len(scores))
+            if len(scores) > 1
+            else 0.0
+        )
         tlo, thi = _bootstrap_ci(scores, n_bootstrap=n_bootstrap)
-        per_tag[tag] = CoverageStats(mean=tmean, std=tstd, ci_low=tlo, ci_high=thi, n=len(scores))
+        per_tag[tag] = CoverageStats(
+            mean=tmean, std=tstd, ci_low=tlo, ci_high=thi, n=len(scores)
+        )
 
     # Cost / latency distribution summaries
     costs = [m.cost_usd for m in metrics if m.cost_usd is not None]
@@ -264,6 +262,7 @@ def aggregate_dataset(
 # ---------------------------------------------------------------------------
 # Multi-dataset summary
 # ---------------------------------------------------------------------------
+
 
 @dataclass
 class SuiteReport:

@@ -12,28 +12,25 @@ What we verify (treating evaluator as a black box):
   - Contradictions in the output surface as errors, not just NOT_MET verdicts.
   - extra_neutral additions are NOT flagged as errors (design: "原則ペナルティなし").
 """
+
 from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any
-from unittest.mock import MagicMock, call, patch
-
-import pytest
+from unittest.mock import MagicMock
 
 from agent_eval.evaluator import LLMEvaluator
 from agent_eval.models import (
     Criterion,
     Dataset,
-    EvalError,
     EvaluationResult,
     Verdict,
 )
 
-
 # ---------------------------------------------------------------------------
 # Helpers: build mock Anthropic client
 # ---------------------------------------------------------------------------
+
 
 def _make_client(responses: list[str]) -> MagicMock:
     """Return an anthropic.Anthropic mock whose messages.create() cycles through
@@ -58,6 +55,7 @@ def _error_response(errors: list[dict]) -> str:
 # evaluate() — structure
 # ---------------------------------------------------------------------------
 
+
 class TestEvaluateStructure:
     """evaluate() must return exactly one CriterionResult per criterion."""
 
@@ -65,9 +63,9 @@ class TestEvaluateStructure:
         self, output_file: Path, reference_file: Path, criteria: list[Criterion]
     ) -> None:
         responses = [
-            _verdict_response("met"),       # c_must
-            _verdict_response("met"),       # c_should
-            _error_response([]),            # error-detection pass
+            _verdict_response("met"),  # c_must
+            _verdict_response("met"),  # c_should
+            _error_response([]),  # error-detection pass
         ]
         evaluator = LLMEvaluator(client=_make_client(responses))
         result = evaluator.evaluate(
@@ -116,7 +114,9 @@ class TestEvaluateStructure:
     def test_all_verdicts_are_valid_enum_values(
         self, output_file: Path, reference_file: Path, criteria: list[Criterion]
     ) -> None:
-        responses = [_verdict_response("partial")] * len(criteria) + [_error_response([])]
+        responses = [_verdict_response("partial")] * len(criteria) + [
+            _error_response([])
+        ]
         evaluator = LLMEvaluator(client=_make_client(responses))
         result = evaluator.evaluate(
             output_files=[output_file],
@@ -167,6 +167,7 @@ class TestEvaluateStructure:
 # evaluate() — error detection
 # ---------------------------------------------------------------------------
 
+
 class TestEvaluateErrors:
     """errors list must reflect contradiction / unsupported / format only."""
 
@@ -188,10 +189,15 @@ class TestEvaluateErrors:
         self, output_file: Path, reference_file: Path, criteria: list[Criterion]
     ) -> None:
         responses = [_verdict_response("contradicted")] * len(criteria) + [
-            _error_response([
-                {"type": "contradiction", "severity": "critical",
-                 "description": "Price stated as $100M, reference says $50M."}
-            ])
+            _error_response(
+                [
+                    {
+                        "type": "contradiction",
+                        "severity": "critical",
+                        "description": "Price stated as $100M, reference says $50M.",
+                    }
+                ]
+            )
         ]
         evaluator = LLMEvaluator(client=_make_client(responses))
         result = evaluator.evaluate(
@@ -209,10 +215,15 @@ class TestEvaluateErrors:
         valid_types = {"contradiction", "unsupported", "format", "extra_neutral"}
         valid_severities = {"critical", "major", "minor"}
         responses = [_verdict_response("met")] * len(criteria) + [
-            _error_response([
-                {"type": "unsupported", "severity": "major",
-                 "description": "Claimed zero debt with no supporting data."}
-            ])
+            _error_response(
+                [
+                    {
+                        "type": "unsupported",
+                        "severity": "major",
+                        "description": "Claimed zero debt with no supporting data.",
+                    }
+                ]
+            )
         ]
         evaluator = LLMEvaluator(client=_make_client(responses))
         result = evaluator.evaluate(
@@ -231,10 +242,15 @@ class TestEvaluateErrors:
     ) -> None:
         """Design doc: extra_neutral additions must NOT generate critical/major errors."""
         responses = [_verdict_response("met")] * len(criteria) + [
-            _error_response([
-                {"type": "extra_neutral", "severity": "minor",
-                 "description": "Additional background history not in reference."}
-            ])
+            _error_response(
+                [
+                    {
+                        "type": "extra_neutral",
+                        "severity": "minor",
+                        "description": "Additional background history not in reference.",
+                    }
+                ]
+            )
         ]
         evaluator = LLMEvaluator(client=_make_client(responses))
         result = evaluator.evaluate(
@@ -245,7 +261,8 @@ class TestEvaluateErrors:
             run_index=0,
         )
         critical_or_major_extra = [
-            e for e in result.errors
+            e
+            for e in result.errors
             if e.type == "extra_neutral" and e.severity in ("critical", "major")
         ]
         assert critical_or_major_extra == [], (
@@ -257,6 +274,7 @@ class TestEvaluateErrors:
 # evaluate() — independent scoring (one judge call per criterion)
 # ---------------------------------------------------------------------------
 
+
 class TestPerCriterionIndependentScoring:
     """Design: 'criterion 1個ごとに judge を呼ぶ' — N criteria = N criterion calls."""
 
@@ -264,7 +282,12 @@ class TestPerCriterionIndependentScoring:
         self, output_file: Path, reference_file: Path
     ) -> None:
         criteria = [
-            Criterion(id=f"c{i}", description=f"criterion {i}", importance="should", weight=1.0)
+            Criterion(
+                id=f"c{i}",
+                description=f"criterion {i}",
+                importance="should",
+                weight=1.0,
+            )
             for i in range(3)
         ]
         responses = [_verdict_response("met")] * 3 + [_error_response([])]
@@ -285,7 +308,9 @@ class TestPerCriterionIndependentScoring:
     ) -> None:
         """n_samples=3 on a must criterion → 3 judge calls for that criterion."""
         criteria = [
-            Criterion(id="c_must", description="must criterion", importance="must", weight=2.0),
+            Criterion(
+                id="c_must", description="must criterion", importance="must", weight=2.0
+            ),
         ]
         responses = [_verdict_response("met")] * 3 + [_error_response([])]
         client = _make_client(responses)
@@ -305,7 +330,9 @@ class TestPerCriterionIndependentScoring:
     ) -> None:
         """With n_samples=3 and 2 MET vs 1 NOT_MET the result must be MET."""
         criteria = [
-            Criterion(id="c_must", description="must criterion", importance="must", weight=2.0),
+            Criterion(
+                id="c_must", description="must criterion", importance="must", weight=2.0
+            ),
         ]
         responses = [
             _verdict_response("met"),
@@ -328,7 +355,12 @@ class TestPerCriterionIndependentScoring:
     ) -> None:
         """should-importance criteria use a single sample even with n_samples>1."""
         criteria = [
-            Criterion(id="c_should", description="should criterion", importance="should", weight=1.0),
+            Criterion(
+                id="c_should",
+                description="should criterion",
+                importance="should",
+                weight=1.0,
+            ),
         ]
         responses = [_verdict_response("partial"), _error_response([])]
         client = _make_client(responses)
@@ -349,6 +381,7 @@ class TestPerCriterionIndependentScoring:
 # calibrate()
 # ---------------------------------------------------------------------------
 
+
 class TestCalibrate:
     """Design: calibrate() judges the reference against itself.
     Expected: all criteria MET, 0 critical errors → passed=True.
@@ -366,9 +399,7 @@ class TestCalibrate:
         cal = evaluator.calibrate(dataset)
         assert cal.passed is True
 
-    def test_fails_when_judge_cannot_confirm_criteria(
-        self, dataset: Dataset
-    ) -> None:
+    def test_fails_when_judge_cannot_confirm_criteria(self, dataset: Dataset) -> None:
         n = len(dataset.criteria)
         # All NOT_MET: judge is broken or criteria are wrong
         responses = [_verdict_response("not_met")] * n + [_error_response([])]
@@ -384,10 +415,15 @@ class TestCalibrate:
     ) -> None:
         n = len(dataset.criteria)
         responses = [_verdict_response("met")] * n + [
-            _error_response([
-                {"type": "contradiction", "severity": "critical",
-                 "description": "Spurious critical error on reference."}
-            ])
+            _error_response(
+                [
+                    {
+                        "type": "contradiction",
+                        "severity": "critical",
+                        "description": "Spurious critical error on reference.",
+                    }
+                ]
+            )
         ]
         evaluator = LLMEvaluator(
             client=_make_client(responses),
@@ -396,9 +432,7 @@ class TestCalibrate:
         cal = evaluator.calibrate(dataset)
         assert cal.passed is False
 
-    def test_returns_unmet_criterion_ids(
-        self, dataset: Dataset
-    ) -> None:
+    def test_returns_unmet_criterion_ids(self, dataset: Dataset) -> None:
         n = len(dataset.criteria)
         # First criterion fails, rest pass
         responses = (
@@ -414,18 +448,14 @@ class TestCalibrate:
         assert len(cal.unmet_criterion_ids) == 1
         assert dataset.criteria[0].id in cal.unmet_criterion_ids
 
-    def test_calibration_result_has_message(
-        self, dataset: Dataset
-    ) -> None:
+    def test_calibration_result_has_message(self, dataset: Dataset) -> None:
         n = len(dataset.criteria)
         responses = [_verdict_response("met")] * n + [_error_response([])]
         evaluator = LLMEvaluator(client=_make_client(responses))
         cal = evaluator.calibrate(dataset)
         assert isinstance(cal.message, str) and len(cal.message) > 0
 
-    def test_partial_counts_as_met_for_calibration_gate(
-        self, dataset: Dataset
-    ) -> None:
+    def test_partial_counts_as_met_for_calibration_gate(self, dataset: Dataset) -> None:
         """Design: calibration uses reference on reference; PARTIAL should be acceptable."""
         n = len(dataset.criteria)
         responses = [_verdict_response("partial")] * n + [_error_response([])]
@@ -441,6 +471,7 @@ class TestCalibrate:
 # ---------------------------------------------------------------------------
 # Malformed judge response graceful handling
 # ---------------------------------------------------------------------------
+
 
 class TestMalformedJudgeResponse:
     """Judge may produce non-JSON; evaluator must degrade gracefully."""

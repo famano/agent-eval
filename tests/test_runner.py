@@ -12,29 +12,29 @@ What we verify (treating runner as a black box via DatasetReport):
   - Trajectory is saved per run (not in scoring, but as debug log).
   - An agent that raises an exception is treated as CRASHED.
 """
+
 from __future__ import annotations
 
-import time
 from pathlib import Path
-from unittest.mock import MagicMock, call
+from unittest.mock import MagicMock
 
 import pytest
 
 from agent_eval.models import (
     Criterion,
+    CriterionResult,
     Dataset,
     EvaluationResult,
-    CriterionResult,
     RunResult,
     RunStatus,
     Verdict,
 )
-from agent_eval.runner import DatasetReport, Iterator
-
+from agent_eval.runner import Iterator
 
 # ---------------------------------------------------------------------------
 # Stub agents
 # ---------------------------------------------------------------------------
+
 
 class AlwaysSucceedAgent:
     """Writes a single file and returns SUCCESS."""
@@ -45,7 +45,9 @@ class AlwaysSucceedAgent:
         m.sdk_version = "0.0"
         return m
 
-    def run(self, input_dir: Path, output_dir: Path, timeout_s: int, budget_usd: float) -> RunResult:
+    def run(
+        self, input_dir: Path, output_dir: Path, timeout_s: int, budget_usd: float
+    ) -> RunResult:
         out = output_dir / "result.txt"
         out.write_text("output", encoding="utf-8")
         return RunResult(
@@ -64,7 +66,9 @@ class AlwaysCrashAgent:
     def metadata(self) -> MagicMock:
         return MagicMock()
 
-    def run(self, input_dir: Path, output_dir: Path, timeout_s: int, budget_usd: float) -> RunResult:
+    def run(
+        self, input_dir: Path, output_dir: Path, timeout_s: int, budget_usd: float
+    ) -> RunResult:
         return RunResult(
             status=RunStatus.CRASHED,
             output_files=[],
@@ -79,7 +83,9 @@ class AlwaysTimeoutAgent:
     def metadata(self) -> MagicMock:
         return MagicMock()
 
-    def run(self, input_dir: Path, output_dir: Path, timeout_s: int, budget_usd: float) -> RunResult:
+    def run(
+        self, input_dir: Path, output_dir: Path, timeout_s: int, budget_usd: float
+    ) -> RunResult:
         return RunResult(
             status=RunStatus.TIMEOUT,
             output_files=[],
@@ -94,7 +100,9 @@ class AlwaysBudgetAgent:
     def metadata(self) -> MagicMock:
         return MagicMock()
 
-    def run(self, input_dir: Path, output_dir: Path, timeout_s: int, budget_usd: float) -> RunResult:
+    def run(
+        self, input_dir: Path, output_dir: Path, timeout_s: int, budget_usd: float
+    ) -> RunResult:
         return RunResult(
             status=RunStatus.BUDGET_EXCEEDED,
             output_files=[],
@@ -111,7 +119,9 @@ class RaisingAgent:
     def metadata(self) -> MagicMock:
         return MagicMock()
 
-    def run(self, input_dir: Path, output_dir: Path, timeout_s: int, budget_usd: float) -> RunResult:
+    def run(
+        self, input_dir: Path, output_dir: Path, timeout_s: int, budget_usd: float
+    ) -> RunResult:
         raise RuntimeError("Agent exploded")
 
 
@@ -124,7 +134,9 @@ class CrashThenSucceedAgent:
     def metadata(self) -> MagicMock:
         return MagicMock()
 
-    def run(self, input_dir: Path, output_dir: Path, timeout_s: int, budget_usd: float) -> RunResult:
+    def run(
+        self, input_dir: Path, output_dir: Path, timeout_s: int, budget_usd: float
+    ) -> RunResult:
         self._calls += 1
         if self._calls == 1:
             return RunResult(
@@ -151,6 +163,7 @@ class CrashThenSucceedAgent:
 # Stub evaluator
 # ---------------------------------------------------------------------------
 
+
 def _make_stub_evaluator(dataset_id: str = "ds-test-001") -> MagicMock:
     evaluator = MagicMock()
     call_count = {"n": 0}
@@ -161,7 +174,9 @@ def _make_stub_evaluator(dataset_id: str = "ds-test-001") -> MagicMock:
             dataset_id=dataset_id,
             run_index=run_index,
             criterion_results=[
-                CriterionResult(criterion_id=c.id, verdict=Verdict.MET, rationale="stub")
+                CriterionResult(
+                    criterion_id=c.id, verdict=Verdict.MET, rationale="stub"
+                )
                 for c in criteria
             ],
             errors=[],
@@ -174,6 +189,7 @@ def _make_stub_evaluator(dataset_id: str = "ds-test-001") -> MagicMock:
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture()
 def simple_dataset(tmp_path: Path) -> Dataset:
@@ -201,6 +217,7 @@ def simple_dataset(tmp_path: Path) -> Dataset:
 # n_repeats
 # ---------------------------------------------------------------------------
 
+
 class TestNRepeats:
     def test_n_repeats_controls_total_runs(
         self, tmp_path: Path, simple_dataset: Dataset
@@ -226,6 +243,7 @@ class TestNRepeats:
 # Run isolation
 # ---------------------------------------------------------------------------
 
+
 class TestRunIsolation:
     def test_each_run_uses_separate_output_directory(
         self, tmp_path: Path, simple_dataset: Dataset
@@ -236,7 +254,13 @@ class TestRunIsolation:
             def metadata(self) -> MagicMock:
                 return MagicMock()
 
-            def run(self, input_dir: Path, output_dir: Path, timeout_s: int, budget_usd: float) -> RunResult:
+            def run(
+                self,
+                input_dir: Path,
+                output_dir: Path,
+                timeout_s: int,
+                budget_usd: float,
+            ) -> RunResult:
                 seen_dirs.append(output_dir)
                 out = output_dir / "result.txt"
                 out.write_text("x", encoding="utf-8")
@@ -263,7 +287,13 @@ class TestRunIsolation:
             def metadata(self) -> MagicMock:
                 return MagicMock()
 
-            def run(self, input_dir: Path, output_dir: Path, timeout_s: int, budget_usd: float) -> RunResult:
+            def run(
+                self,
+                input_dir: Path,
+                output_dir: Path,
+                timeout_s: int,
+                budget_usd: float,
+            ) -> RunResult:
                 seen_dirs.append(output_dir.resolve())
                 out = output_dir / "r.txt"
                 out.write_text("y", encoding="utf-8")
@@ -288,6 +318,7 @@ class TestRunIsolation:
 # SUCCESS → evaluator called
 # ---------------------------------------------------------------------------
 
+
 class TestSuccessRouting:
     def test_success_run_passed_to_evaluator(
         self, tmp_path: Path, simple_dataset: Dataset
@@ -302,13 +333,16 @@ class TestSuccessRouting:
     ) -> None:
         evaluator = _make_stub_evaluator()
         runner = Iterator(output_root=tmp_path / "runs")
-        report = runner.run(simple_dataset, AlwaysSucceedAgent(), evaluator, n_repeats=3)
+        report = runner.run(
+            simple_dataset, AlwaysSucceedAgent(), evaluator, n_repeats=3
+        )
         assert len(report.eval_results) == 3
 
 
 # ---------------------------------------------------------------------------
 # CRASHED handling
 # ---------------------------------------------------------------------------
+
 
 class TestCrashedHandling:
     def test_crash_exhausted_excluded_from_eval(
@@ -318,8 +352,11 @@ class TestCrashedHandling:
         evaluator = _make_stub_evaluator()
         runner = Iterator(output_root=tmp_path / "runs")
         report = runner.run(
-            simple_dataset, AlwaysCrashAgent(), evaluator,
-            n_repeats=2, max_infra_retries=1,
+            simple_dataset,
+            AlwaysCrashAgent(),
+            evaluator,
+            n_repeats=2,
+            max_infra_retries=1,
         )
         assert evaluator.evaluate.call_count == 0
         assert len(report.eval_results) == 0
@@ -331,8 +368,11 @@ class TestCrashedHandling:
         evaluator = _make_stub_evaluator()
         runner = Iterator(output_root=tmp_path / "runs")
         report = runner.run(
-            simple_dataset, AlwaysCrashAgent(), evaluator,
-            n_repeats=2, max_infra_retries=0,
+            simple_dataset,
+            AlwaysCrashAgent(),
+            evaluator,
+            n_repeats=2,
+            max_infra_retries=0,
         )
         assert len(report.infra_failures) == 2
 
@@ -343,8 +383,11 @@ class TestCrashedHandling:
         evaluator = _make_stub_evaluator()
         runner = Iterator(output_root=tmp_path / "runs")
         report = runner.run(
-            simple_dataset, CrashThenSucceedAgent(), evaluator,
-            n_repeats=1, max_infra_retries=1,
+            simple_dataset,
+            CrashThenSucceedAgent(),
+            evaluator,
+            n_repeats=1,
+            max_infra_retries=1,
         )
         assert evaluator.evaluate.call_count == 1
         assert len(report.infra_failures) == 0
@@ -356,8 +399,11 @@ class TestCrashedHandling:
         evaluator = _make_stub_evaluator()
         runner = Iterator(output_root=tmp_path / "runs")
         report = runner.run(
-            simple_dataset, RaisingAgent(), evaluator,
-            n_repeats=1, max_infra_retries=0,
+            simple_dataset,
+            RaisingAgent(),
+            evaluator,
+            n_repeats=1,
+            max_infra_retries=0,
         )
         assert evaluator.evaluate.call_count == 0
         assert len(report.infra_failures) == 1
@@ -367,13 +413,14 @@ class TestCrashedHandling:
 # TIMEOUT / BUDGET_EXCEEDED handling
 # ---------------------------------------------------------------------------
 
+
 class TestNonSuccessStatus:
     def test_timeout_not_sent_to_evaluator(
         self, tmp_path: Path, simple_dataset: Dataset
     ) -> None:
         evaluator = _make_stub_evaluator()
         runner = Iterator(output_root=tmp_path / "runs")
-        report = runner.run(simple_dataset, AlwaysTimeoutAgent(), evaluator, n_repeats=2)
+        runner.run(simple_dataset, AlwaysTimeoutAgent(), evaluator, n_repeats=2)
         assert evaluator.evaluate.call_count == 0
 
     def test_timeout_recorded_in_runs(
@@ -381,7 +428,9 @@ class TestNonSuccessStatus:
     ) -> None:
         evaluator = _make_stub_evaluator()
         runner = Iterator(output_root=tmp_path / "runs")
-        report = runner.run(simple_dataset, AlwaysTimeoutAgent(), evaluator, n_repeats=2)
+        report = runner.run(
+            simple_dataset, AlwaysTimeoutAgent(), evaluator, n_repeats=2
+        )
         assert all(r.status == RunStatus.TIMEOUT for r in report.runs)
 
     def test_budget_exceeded_not_sent_to_evaluator(
@@ -389,7 +438,7 @@ class TestNonSuccessStatus:
     ) -> None:
         evaluator = _make_stub_evaluator()
         runner = Iterator(output_root=tmp_path / "runs")
-        report = runner.run(simple_dataset, AlwaysBudgetAgent(), evaluator, n_repeats=2)
+        runner.run(simple_dataset, AlwaysBudgetAgent(), evaluator, n_repeats=2)
         assert evaluator.evaluate.call_count == 0
 
     def test_timeout_not_in_infra_failures(
@@ -398,7 +447,9 @@ class TestNonSuccessStatus:
         """TIMEOUT is a task failure, not an infra failure — separate accounting."""
         evaluator = _make_stub_evaluator()
         runner = Iterator(output_root=tmp_path / "runs")
-        report = runner.run(simple_dataset, AlwaysTimeoutAgent(), evaluator, n_repeats=2)
+        report = runner.run(
+            simple_dataset, AlwaysTimeoutAgent(), evaluator, n_repeats=2
+        )
         # TIMEOUT should NOT bleed into infra_failures
         assert len(report.infra_failures) == 0
 
@@ -407,19 +458,24 @@ class TestNonSuccessStatus:
 # DatasetReport fields
 # ---------------------------------------------------------------------------
 
+
 class TestDatasetReport:
     def test_report_dataset_id_matches(
         self, tmp_path: Path, simple_dataset: Dataset
     ) -> None:
         runner = Iterator(output_root=tmp_path / "runs")
-        report = runner.run(simple_dataset, AlwaysSucceedAgent(), _make_stub_evaluator(), n_repeats=1)
+        report = runner.run(
+            simple_dataset, AlwaysSucceedAgent(), _make_stub_evaluator(), n_repeats=1
+        )
         assert report.dataset_id == simple_dataset.id
 
     def test_report_n_requested_matches(
         self, tmp_path: Path, simple_dataset: Dataset
     ) -> None:
         runner = Iterator(output_root=tmp_path / "runs")
-        report = runner.run(simple_dataset, AlwaysSucceedAgent(), _make_stub_evaluator(), n_repeats=5)
+        report = runner.run(
+            simple_dataset, AlwaysSucceedAgent(), _make_stub_evaluator(), n_repeats=5
+        )
         assert report.n_requested == 5
 
     def test_trajectory_saved_for_successful_run(
@@ -427,7 +483,9 @@ class TestDatasetReport:
     ) -> None:
         """Design §7: trajectory (cost/latency/tokens) logged per run for debugging."""
         runner = Iterator(output_root=tmp_path / "runs")
-        report = runner.run(simple_dataset, AlwaysSucceedAgent(), _make_stub_evaluator(), n_repeats=1)
+        report = runner.run(
+            simple_dataset, AlwaysSucceedAgent(), _make_stub_evaluator(), n_repeats=1
+        )
         successful = [r for r in report.runs if r.status == RunStatus.SUCCESS]
         assert len(successful) == 1
         traj = successful[0].trajectory_ref
