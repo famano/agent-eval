@@ -3,12 +3,12 @@ from __future__ import annotations
 
 import json
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal, Protocol
+from typing import TypeVar
 
-import anthropic
-
+from .llm import AnthropicClient, LLMClient, StructuredLLMClient
 from .models import (
     Criterion,
     CriterionResult,
@@ -19,6 +19,8 @@ from .models import (
 )
 
 logger = logging.getLogger(__name__)
+
+_T = TypeVar("_T")
 
 # ---------------------------------------------------------------------------
 # Text extraction helpers
@@ -132,23 +134,76 @@ Return a JSON array of error objects (may be empty):
 
 Reply with raw JSON only, no markdown fences."""
 
+# Tool definitions for structured output (used when the client supports it)
+_VERDICT_TOOL: dict = {
+    "name": "report_verdict",
+    "description": "Report the evaluation verdict for the criterion.",
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "verdict": {
+                "type": "string",
+                "enum": ["met", "partial", "not_met", "contradicted"],
+            },
+            "rationale": {"type": "string"},
+        },
+        "required": ["verdict", "rationale"],
+    },
+}
+
+_ERROR_TOOL: dict = {
+    "name": "report_errors",
+    "description": "Report factual errors found in the output document.",
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "errors": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "type": {
+                            "type": "string",
+                            "enum": ["contradiction", "unsupported", "format"],
+                        },
+                        "severity": {
+                            "type": "string",
+                            "enum": ["critical", "major", "minor"],
+                        },
+                        "description": {"type": "string"},
+                    },
+                    "required": ["type", "severity"],
+                },
+            }
+        },
+        "required": ["errors"],
+    },
+}
+
 
 # ---------------------------------------------------------------------------
 # LLM Evaluator
 # ---------------------------------------------------------------------------
 
 class LLMEvaluator:
-    """Evaluates agent output against criteria using an Anthropic LLM as judge.
+    """Evaluates agent output against criteria using an LLM as judge.
 
     Parameters
     ----------
     model:
-        Judge model ID. Should be at least as capable as the agent under test
-        and preferably from a different model family to reduce self-enhancement bias.
+        Judge model ID. Used only when ``client`` is not provided and an
+        :class:`~agent_eval.llm.AnthropicClient` is created automatically.
     n_samples:
         Number of judge samples for majority-vote on must-importance criteria.
     calibration_threshold:
         Fraction of criteria that must be MET when judging the reference itself.
+    client:
+        Any :class:`~agent_eval.llm.LLMClient` implementation. If the client
+        also implements :class:`~agent_eval.llm.StructuredLLMClient`, structured
+        output via tool use is used and JSON parse retries are skipped.
+    parse_max_retries:
+        How many times to retry after a JSON parse failure on the text path.
+        Set to 0 to disable retries (useful in tests).
     """
 
     def __init__(
@@ -156,24 +211,51 @@ class LLMEvaluator:
         model: str = "claude-opus-4-7",
         n_samples: int = 1,
         calibration_threshold: float = 0.95,
-        client: anthropic.Anthropic | None = None,
+        client: LLMClient | None = None,
+        parse_max_retries: int = 2,
     ) -> None:
         self.model = model
         self.n_samples = n_samples
         self.calibration_threshold = calibration_threshold
-        self._client = client or anthropic.Anthropic()
+        self.parse_max_retries = parse_max_retries
+        self._client: LLMClient = client or AnthropicClient(model)
 
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
 
     def _call_judge(self, prompt: str) -> str:
-        response = self._client.messages.create(
-            model=self.model,
-            max_tokens=512,
-            messages=[{"role": "user", "content": prompt}],
+        return self._client.complete(prompt)
+
+    def _call_judge_with_retry(
+        self,
+        prompt: str,
+        parse_fn: Callable[[str], _T],
+    ) -> _T | None:
+        """Call judge and parse result, retrying on JSON / value parse failures.
+
+        Non-parse exceptions (API errors, network failures) propagate immediately.
+        Returns ``None`` only after all retry attempts are exhausted.
+        """
+        last_exc: Exception | None = None
+        raw = ""
+        total = 1 + self.parse_max_retries
+        for attempt in range(total):
+            raw = self._call_judge(prompt)
+            try:
+                return parse_fn(raw)
+            except (json.JSONDecodeError, KeyError, ValueError) as exc:
+                last_exc = exc
+                if attempt < total - 1:
+                    logger.warning(
+                        "Parse attempt %d/%d failed: %s — retrying",
+                        attempt + 1, total, exc,
+                    )
+        logger.warning(
+            "All %d parse attempts failed: %s — raw: %.200s",
+            total, last_exc, raw,
         )
-        return response.content[0].text.strip()
+        return None
 
     def _score_criterion(
         self,
@@ -194,15 +276,22 @@ class LLMEvaluator:
         rationales: list[str] = []
 
         for _ in range(n):
-            raw = self._call_judge(prompt)
-            try:
-                data = json.loads(raw)
+            if isinstance(self._client, StructuredLLMClient):
+                data = self._client.complete_structured(prompt, _VERDICT_TOOL)
                 verdict = Verdict(data["verdict"])
                 rationale = data.get("rationale", "")
-            except Exception as exc:
-                logger.warning("Failed to parse criterion verdict: %s — raw: %s", exc, raw)
-                verdict = Verdict.NOT_MET
-                rationale = f"Parse error: {exc}"
+            else:
+                def _parse(raw: str) -> tuple[Verdict, str]:
+                    d = json.loads(raw)
+                    return Verdict(d["verdict"]), d.get("rationale", "")
+
+                result = self._call_judge_with_retry(prompt, _parse)
+                if result is None:
+                    verdict = Verdict.NOT_MET
+                    rationale = "Parse error: all retries exhausted"
+                else:
+                    verdict, rationale = result
+
             verdicts.append(verdict)
             rationales.append(rationale)
 
@@ -231,22 +320,26 @@ class LLMEvaluator:
             reference_text=reference_text,
             output_text=output_text,
         )
-        raw = self._call_judge(prompt)
-        try:
-            items = json.loads(raw)
-            errors: list[EvalError] = []
-            for item in items:
-                errors.append(
-                    EvalError(
-                        type=item["type"],
-                        severity=item["severity"],
-                        description=item.get("description", ""),
-                    )
+
+        if isinstance(self._client, StructuredLLMClient):
+            data = self._client.complete_structured(prompt, _ERROR_TOOL)
+            items: list[dict] = data["errors"]
+        else:
+            result = self._call_judge_with_retry(prompt, json.loads)
+            if result is None:
+                return []
+            items = result
+
+        errors: list[EvalError] = []
+        for item in items:
+            errors.append(
+                EvalError(
+                    type=item["type"],
+                    severity=item["severity"],
+                    description=item.get("description", ""),
                 )
-            return errors
-        except Exception as exc:
-            logger.warning("Failed to parse error list: %s — raw: %s", exc, raw)
-            return []
+            )
+        return errors
 
     # ------------------------------------------------------------------
     # Public interface
