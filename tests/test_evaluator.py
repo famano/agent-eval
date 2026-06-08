@@ -22,6 +22,7 @@ from unittest.mock import MagicMock, call, patch
 import pytest
 
 from agent_eval.evaluator import LLMEvaluator
+from agent_eval.llm import LLMClient, StructuredLLMClient
 from agent_eval.models import (
     Criterion,
     Dataset,
@@ -32,17 +33,13 @@ from agent_eval.models import (
 
 
 # ---------------------------------------------------------------------------
-# Helpers: build mock Anthropic client
+# Helpers: build mock LLMClient
 # ---------------------------------------------------------------------------
 
 def _make_client(responses: list[str]) -> MagicMock:
-    """Return an anthropic.Anthropic mock whose messages.create() cycles through
-    the given JSON string responses."""
-    client = MagicMock()
-    content_blocks = [MagicMock(text=r) for r in responses]
-    client.messages.create.side_effect = [
-        MagicMock(content=[b]) for b in content_blocks
-    ]
+    """Return a LLMClient mock whose complete() cycles through the given responses."""
+    client = MagicMock(spec=LLMClient)
+    client.complete.side_effect = responses
     return client
 
 
@@ -278,7 +275,7 @@ class TestPerCriterionIndependentScoring:
             run_index=0,
         )
         # 3 criterion calls + 1 error-detection call = 4 total
-        assert client.messages.create.call_count == 4
+        assert client.complete.call_count == 4
 
     def test_must_criterion_uses_multiple_samples(
         self, output_file: Path, reference_file: Path
@@ -298,7 +295,7 @@ class TestPerCriterionIndependentScoring:
             run_index=0,
         )
         # 3 samples for the one must criterion + 1 error call = 4
-        assert client.messages.create.call_count == 4
+        assert client.complete.call_count == 4
 
     def test_majority_vote_resolves_split(
         self, output_file: Path, reference_file: Path
@@ -341,7 +338,7 @@ class TestPerCriterionIndependentScoring:
             run_index=0,
         )
         # 1 criterion call + 1 error call = 2
-        assert client.messages.create.call_count == 2
+        assert client.complete.call_count == 2
         assert result.criterion_results[0].verdict == Verdict.PARTIAL
 
 
@@ -449,9 +446,9 @@ class TestMalformedJudgeResponse:
         self, output_file: Path, reference_file: Path, criteria: list[Criterion]
     ) -> None:
         bad = "Sorry, I cannot assess this."
-        # One bad response per criterion, then a valid error-detection response
+        # parse_max_retries=0: one attempt per call, no retry — tests graceful degradation
         responses = [bad] * len(criteria) + [_error_response([])]
-        evaluator = LLMEvaluator(client=_make_client(responses))
+        evaluator = LLMEvaluator(client=_make_client(responses), parse_max_retries=0)
         result = evaluator.evaluate(
             output_files=[output_file],
             reference_files=[reference_file],
@@ -466,7 +463,7 @@ class TestMalformedJudgeResponse:
         self, output_file: Path, reference_file: Path, criteria: list[Criterion]
     ) -> None:
         responses = [_verdict_response("met")] * len(criteria) + ["not json at all"]
-        evaluator = LLMEvaluator(client=_make_client(responses))
+        evaluator = LLMEvaluator(client=_make_client(responses), parse_max_retries=0)
         result = evaluator.evaluate(
             output_files=[output_file],
             reference_files=[reference_file],
@@ -476,3 +473,117 @@ class TestMalformedJudgeResponse:
         )
         # errors list may be empty but must not raise
         assert isinstance(result.errors, list)
+
+    def test_parse_retried_before_fallback(
+        self, output_file: Path, reference_file: Path
+    ) -> None:
+        """After bad responses, a good response on the retry path yields the correct verdict."""
+        criteria = [
+            Criterion(id="c1", description="criterion", importance="should", weight=1.0),
+        ]
+        bad = "not json"
+        responses = [
+            bad,                           # first attempt: parse failure
+            _verdict_response("met"),      # second attempt (retry 1): success
+            _error_response([]),
+        ]
+        client = _make_client(responses)
+        evaluator = LLMEvaluator(client=client, parse_max_retries=1)
+        result = evaluator.evaluate(
+            output_files=[output_file],
+            reference_files=[reference_file],
+            criteria=criteria,
+            dataset_id="ds-001",
+            run_index=0,
+        )
+        assert result.criterion_results[0].verdict == Verdict.MET
+        # 2 calls for the criterion (1 bad + 1 retry) + 1 error-detection = 3
+        assert client.complete.call_count == 3
+
+    def test_api_error_propagates(
+        self, output_file: Path, reference_file: Path, criteria: list[Criterion]
+    ) -> None:
+        """Non-parse errors (API failures) must propagate, not silently default."""
+        client = MagicMock(spec=LLMClient)
+        client.complete.side_effect = RuntimeError("API connection failed")
+        evaluator = LLMEvaluator(client=client)
+        with pytest.raises(RuntimeError, match="API connection failed"):
+            evaluator.evaluate(
+                output_files=[output_file],
+                reference_files=[reference_file],
+                criteria=criteria,
+                dataset_id="ds-001",
+                run_index=0,
+            )
+
+
+# ---------------------------------------------------------------------------
+# Structured output path
+# ---------------------------------------------------------------------------
+
+class TestStructuredOutput:
+    """When the client implements StructuredLLMClient, complete_structured is used."""
+
+    def _make_structured_client(
+        self,
+        verdict_responses: list[dict],
+        error_response: dict,
+    ) -> MagicMock:
+        """Mock with both complete and complete_structured (StructuredLLMClient spec)."""
+        client = MagicMock(spec=["complete", "complete_structured"])
+        verdict_iter = iter(verdict_responses)
+        error_iter = iter([error_response])
+
+        def _complete_structured(prompt: str, tool: dict) -> dict:
+            if tool["name"] == "report_verdict":
+                return next(verdict_iter)
+            return next(error_iter)
+
+        client.complete_structured.side_effect = _complete_structured
+        return client
+
+    def test_structured_client_uses_complete_structured(
+        self, output_file: Path, reference_file: Path, criteria: list[Criterion]
+    ) -> None:
+        verdict_responses = [
+            {"verdict": "met", "rationale": "ok"},
+            {"verdict": "partial", "rationale": "almost"},
+        ]
+        error_resp = {"errors": []}
+        client = self._make_structured_client(verdict_responses, error_resp)
+        evaluator = LLMEvaluator(client=client)
+        result = evaluator.evaluate(
+            output_files=[output_file],
+            reference_files=[reference_file],
+            criteria=criteria,
+            dataset_id="ds-001",
+            run_index=0,
+        )
+        # complete_structured called for each criterion + error detection
+        assert client.complete_structured.call_count == len(criteria) + 1
+        # complete (text path) must NOT be called
+        assert client.complete.call_count == 0
+
+    def test_structured_path_verdict_correct(
+        self, output_file: Path, reference_file: Path
+    ) -> None:
+        criteria = [
+            Criterion(id="c1", description="c", importance="should", weight=1.0)
+        ]
+        verdict_responses = [{"verdict": "contradicted", "rationale": "mismatch"}]
+        error_resp = {"errors": [
+            {"type": "contradiction", "severity": "critical", "description": "x"}
+        ]}
+        client = self._make_structured_client(verdict_responses, error_resp)
+        evaluator = LLMEvaluator(client=client)
+        result = evaluator.evaluate(
+            output_files=[output_file],
+            reference_files=[reference_file],
+            criteria=criteria,
+            dataset_id="ds-001",
+            run_index=0,
+        )
+        assert result.criterion_results[0].verdict == Verdict.CONTRADICTED
+        assert result.criterion_results[0].rationale == "mismatch"
+        assert len(result.errors) == 1
+        assert result.errors[0].type == "contradiction"
