@@ -1,6 +1,6 @@
 [build-system]
 requires = ["setuptools>=68"]
-build-backend = "setuptools.backends.legacy:build"
+build-backend = "setuptools.build_meta"
 
 [project]
 name = "agent-eval"
@@ -13,8 +13,36 @@ dependencies = [
 [project.optional-dependencies]
 docx = ["python-docx>=1.1"]
 pdf  = ["pdfminer.six>=20221105"]
-dev  = ["pytest>=8", "mypy>=1.10"]
 
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["agent_eval*"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 88
+
+[tool.ruff.lint]
+select = ["E", "W", "F", "I", "UP", "B"]
+ignore = ["E501"]
+
+[tool.ruff.format]
+quote-style = "double"
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+ignore_missing_imports = true
+
+[tool.bandit]
+targets = ["agent_eval"]
+skips = ["B101"]
+
+[dependency-groups]
+dev = [
+    "bandit[toml]>=1.9.4",
+    "mypy>=2.1.0",
+    "pytest>=9.0.3",
+    "pytest-cov>=7.1.0",
+    "ruff>=0.15.16",
+]
