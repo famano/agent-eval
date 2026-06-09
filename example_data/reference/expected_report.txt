@@ -1,0 +1,3 @@
+Acquisition: Widget Corp acquired Acme Inc.
+Deal value: $50M.
+No regulatory issues identified.
