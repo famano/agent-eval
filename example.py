@@ -2,6 +2,7 @@
 
 Replace StubAgent with your real agent implementation.
 """
+
 from __future__ import annotations
 
 import logging
@@ -9,7 +10,6 @@ import time
 from pathlib import Path
 
 from agent_eval import (
-    Agent,
     AgentMetadata,
     Criterion,
     Dataset,
@@ -27,6 +27,7 @@ logging.basicConfig(level=logging.INFO)
 # ---------------------------------------------------------------------------
 # Stub agent (replace with real implementation)
 # ---------------------------------------------------------------------------
+
 
 class StubAgent:
     """Minimal example: copies input files to output_dir as-is."""
@@ -70,10 +71,13 @@ class StubAgent:
 # Dataset definition
 # ---------------------------------------------------------------------------
 
+
 def build_example_dataset(base: Path) -> Dataset:
     input_dir = base / "input"
     input_dir.mkdir(parents=True, exist_ok=True)
-    (input_dir / "source.txt").write_text("Source material: Widget Corp acquired Acme Inc for $50M.")
+    (input_dir / "source.txt").write_text(
+        "Source material: Widget Corp acquired Acme Inc for $50M."
+    )
 
     reference_dir = base / "reference"
     reference_dir.mkdir(parents=True, exist_ok=True)
@@ -121,6 +125,7 @@ def build_example_dataset(base: Path) -> Dataset:
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
+
 
 def main() -> None:
     base = Path("example_data")

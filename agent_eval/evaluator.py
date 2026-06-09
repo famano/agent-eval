@@ -1,4 +1,5 @@
 """LLM-based evaluator with per-criterion scoring and calibration gate."""
+
 from __future__ import annotations
 
 import json
@@ -6,7 +7,7 @@ import logging
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TypeVar
+from typing import Any, TypeVar
 
 from .llm import AnthropicClient, LLMClient, StructuredLLMClient
 from .models import (
@@ -26,6 +27,7 @@ _T = TypeVar("_T")
 # Text extraction helpers
 # ---------------------------------------------------------------------------
 
+
 def _extract_text(path: Path) -> str:
     """Return plain text from a file. Handles .txt / .md natively; others need
     external libs (docx, pdf) — install as needed."""
@@ -34,16 +36,18 @@ def _extract_text(path: Path) -> str:
         return path.read_text(encoding="utf-8", errors="replace")
     if suffix == ".docx":
         try:
-            import docx  # type: ignore
+            import docx  # type: ignore[import-untyped,unused-ignore]
+
             doc = docx.Document(str(path))
-            return "\n".join(p.text for p in doc.paragraphs)
+            return str("\n".join(p.text for p in doc.paragraphs))
         except ImportError:
             logger.warning("python-docx not installed; reading %s as text", path)
             return path.read_text(encoding="utf-8", errors="replace")
     if suffix == ".pdf":
         try:
-            import pdfminer.high_level as pdf  # type: ignore
-            return pdf.extract_text(str(path))
+            import pdfminer.high_level as pdf  # type: ignore[import-untyped,unused-ignore]
+
+            return str(pdf.extract_text(str(path)))
         except ImportError:
             logger.warning("pdfminer.six not installed; reading %s as text", path)
             return path.read_text(encoding="utf-8", errors="replace")
@@ -61,6 +65,7 @@ def _load_files(paths: list[Path]) -> str:
 # ---------------------------------------------------------------------------
 # Calibration result
 # ---------------------------------------------------------------------------
+
 
 @dataclass
 class CalibrationResult:
@@ -135,7 +140,7 @@ Return a JSON array of error objects (may be empty):
 Reply with raw JSON only, no markdown fences."""
 
 # Tool definitions for structured output (used when the client supports it)
-_VERDICT_TOOL: dict = {
+_VERDICT_TOOL: dict[str, Any] = {
     "name": "report_verdict",
     "description": "Report the evaluation verdict for the criterion.",
     "input_schema": {
@@ -151,7 +156,7 @@ _VERDICT_TOOL: dict = {
     },
 }
 
-_ERROR_TOOL: dict = {
+_ERROR_TOOL: dict[str, Any] = {
     "name": "report_errors",
     "description": "Report factual errors found in the output document.",
     "input_schema": {
@@ -184,6 +189,7 @@ _ERROR_TOOL: dict = {
 # ---------------------------------------------------------------------------
 # LLM Evaluator
 # ---------------------------------------------------------------------------
+
 
 class LLMEvaluator:
     """Evaluates agent output against criteria using an LLM as judge.
@@ -249,11 +255,15 @@ class LLMEvaluator:
                 if attempt < total - 1:
                     logger.warning(
                         "Parse attempt %d/%d failed: %s — retrying",
-                        attempt + 1, total, exc,
+                        attempt + 1,
+                        total,
+                        exc,
                     )
         logger.warning(
             "All %d parse attempts failed: %s — raw: %.200s",
-            total, last_exc, raw,
+            total,
+            last_exc,
+            raw,
         )
         return None
 
@@ -281,6 +291,7 @@ class LLMEvaluator:
                 verdict = Verdict(data["verdict"])
                 rationale = data.get("rationale", "")
             else:
+
                 def _parse(raw: str) -> tuple[Verdict, str]:
                     d = json.loads(raw)
                     return Verdict(d["verdict"]), d.get("rationale", "")
@@ -298,7 +309,7 @@ class LLMEvaluator:
         # majority vote
         final_verdict = max(set(verdicts), key=verdicts.count)
         # pick rationale matching the majority verdict
-        for v, r in zip(verdicts, rationales):
+        for v, r in zip(verdicts, rationales, strict=False):
             if v == final_verdict:
                 final_rationale = r
                 break
@@ -323,7 +334,7 @@ class LLMEvaluator:
 
         if isinstance(self._client, StructuredLLMClient):
             data = self._client.complete_structured(prompt, _ERROR_TOOL)
-            items: list[dict] = data["errors"]
+            items: list[dict[str, Any]] = data["errors"]
         else:
             result = self._call_judge_with_retry(prompt, json.loads)
             if result is None:
@@ -390,7 +401,9 @@ class LLMEvaluator:
         errors = self._detect_errors(reference_text, reference_text)
         critical_errors = [e for e in errors if e.severity == "critical"]
 
-        met_fraction = (len(dataset.criteria) - len(unmet)) / max(len(dataset.criteria), 1)
+        met_fraction = (len(dataset.criteria) - len(unmet)) / max(
+            len(dataset.criteria), 1
+        )
         passed = met_fraction >= self.calibration_threshold and not critical_errors
 
         msg = (
