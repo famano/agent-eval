@@ -36,7 +36,12 @@ ignore_missing_imports = true
 
 [tool.bandit]
 targets = ["agent_eval"]
-skips = ["B101"]
+skips = [
+    "B101",  # assert statements in tests
+    "B311",  # random used for bootstrap CI (not cryptographic)
+    "B404",  # subprocess import is intentional
+    "B603",  # subprocess.run with list args (no shell injection risk)
+]
 
 [dependency-groups]
 dev = [
