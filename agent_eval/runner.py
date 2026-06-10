@@ -1,11 +1,11 @@
 """Iterator / Runner: orchestrates N-repeat evaluation runs for a dataset."""
+
 from __future__ import annotations
 
 import json
 import logging
 import time
-import uuid
-from dataclasses import asdict, dataclass, field
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from .agent import Agent
@@ -21,7 +21,7 @@ class DatasetReport:
     n_requested: int
     runs: list[RunResult] = field(default_factory=list)
     eval_results: list[EvaluationResult] = field(default_factory=list)
-    infra_failures: list[dict] = field(default_factory=list)
+    infra_failures: list[dict[str, object]] = field(default_factory=list)
 
 
 class Iterator:
@@ -164,7 +164,9 @@ class Iterator:
         return None, None
 
     def _make_output_dir(self, dataset_id: str, run_index: int, attempt: int) -> Path:
-        dir_path = self.output_root / dataset_id / f"run_{run_index:03d}_attempt_{attempt}"
+        dir_path = (
+            self.output_root / dataset_id / f"run_{run_index:03d}_attempt_{attempt}"
+        )
         dir_path.mkdir(parents=True, exist_ok=True)
         return dir_path
 

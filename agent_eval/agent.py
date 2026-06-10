@@ -15,7 +15,7 @@ class AgentMetadata:
     skills: list[str] = field(default_factory=list)
     temperature: float | None = None
     seed: int | None = None
-    extra: dict = field(default_factory=dict)
+    extra: dict[str, object] = field(default_factory=dict)
 
 
 class Agent(Protocol):
