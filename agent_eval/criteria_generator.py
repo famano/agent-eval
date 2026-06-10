@@ -1,9 +1,11 @@
 """Generate evaluation criteria from reference documents using an LLM."""
+
 from __future__ import annotations
 
 import logging
 import time
 from pathlib import Path
+from typing import Any
 
 import anthropic
 
@@ -19,7 +21,7 @@ _RETRYABLE_ERRORS = (
 )
 
 # Tool schema — forces structured JSON output via the API.
-_CRITERIA_TOOL: dict = {
+_CRITERIA_TOOL: dict[str, Any] = {
     "name": "submit_criteria",
     "description": (
         "Submit the complete list of evaluation criteria extracted from the reference documents."
@@ -101,7 +103,7 @@ def generate_criteria(
     model: str = "claude-opus-4-7",
     max_retries: int = 3,
     client: anthropic.Anthropic | None = None,
-) -> list[dict]:
+) -> list[dict[str, Any]]:
     """Generate evaluation criteria from reference documents.
 
     Uses structured output (tool use) to guarantee schema-valid JSON.
@@ -144,7 +146,7 @@ def generate_criteria(
 
     for attempt in range(max_retries):
         try:
-            response = _client.messages.create(
+            response = _client.messages.create(  # type: ignore[call-overload]
                 model=model,
                 max_tokens=4096,
                 tools=[_CRITERIA_TOOL],
@@ -161,7 +163,7 @@ def generate_criteria(
                     "Model did not return a tool_use block despite forced tool_choice."
                 )
 
-            criteria: list[dict] = tool_block.input["criteria"]
+            criteria: list[dict[str, Any]] = tool_block.input["criteria"]
             logger.info(
                 "Generated %d criteria from %d reference file(s).",
                 len(criteria),

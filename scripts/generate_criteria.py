@@ -26,6 +26,7 @@ Other options
   python scripts/generate_criteria.py --reference-dir refs/ --model claude-sonnet-4-6
   python scripts/generate_criteria.py --reference-dir refs/ --max-retries 5
 """
+
 from __future__ import annotations
 
 import argparse
@@ -108,13 +109,15 @@ def main() -> None:
         help="Reference files to generate criteria from.",
     )
     parser.add_argument(
-        "--reference-dir", "-r",
+        "--reference-dir",
+        "-r",
         type=Path,
         metavar="DIR",
         help="Directory of reference files (alternative to positional FILE args).",
     )
     parser.add_argument(
-        "--input-dir", "-i",
+        "--input-dir",
+        "-i",
         type=Path,
         metavar="DIR",
         help="Directory of input/task-context files for richer criteria.",
@@ -129,7 +132,8 @@ def main() -> None:
 
     # --- Batch mode ---
     parser.add_argument(
-        "--batch-dir", "-b",
+        "--batch-dir",
+        "-b",
         type=Path,
         metavar="DIR",
         help=(
@@ -157,7 +161,8 @@ def main() -> None:
 
     # --- Output (single mode) ---
     parser.add_argument(
-        "--output", "-o",
+        "--output",
+        "-o",
         type=Path,
         metavar="FILE",
         help="Write JSON output to FILE instead of stdout (single mode only).",
@@ -165,7 +170,8 @@ def main() -> None:
 
     # --- Shared options ---
     parser.add_argument(
-        "--model", "-m",
+        "--model",
+        "-m",
         default="claude-opus-4-7",
         metavar="MODEL",
         help="Anthropic model to use (default: claude-opus-4-7).",
@@ -192,7 +198,9 @@ def main() -> None:
     # ------------------------------------------------------------------ #
     if args.batch_dir:
         if args.reference_files or args.reference_dir:
-            parser.error("--batch-dir cannot be combined with --reference-dir or FILE args.")
+            parser.error(
+                "--batch-dir cannot be combined with --reference-dir or FILE args."
+            )
 
         subdirs = sorted(d for d in args.batch_dir.iterdir() if d.is_dir())
         if not subdirs:
