@@ -1,7 +1,6 @@
 """agent_eval — LLM agent evaluation framework."""
 
 from .agent import Agent, AgentMetadata
-from .wrappers import ClaudeWrapperAgent, CodexWrapperAgent, GeminiWrapperAgent, WrapperConfig
 from .criteria_generator import generate_criteria
 from .evaluator import CalibrationResult, LLMEvaluator
 from .models import (
@@ -23,14 +22,19 @@ from .scoring import (
     aggregate_dataset,
     compute_run_metrics,
 )
+from .wrappers import (
+    ShellAgentConfig,
+    ShellWrapperAgent,
+    WrapperConfig,
+    claude_code_agent,
+    codex_agent,
+    gemini_agent,
+    read_prompt,
+)
 
 __all__ = [
     "Agent",
     "AgentMetadata",
-    "ClaudeWrapperAgent",
-    "CodexWrapperAgent",
-    "GeminiWrapperAgent",
-    "WrapperConfig",
     "CalibrationResult",
     "Criterion",
     "CriterionResult",
@@ -45,9 +49,16 @@ __all__ = [
     "RunMetrics",
     "RunResult",
     "RunStatus",
+    "ShellAgentConfig",
+    "ShellWrapperAgent",
     "SuiteReport",
     "Verdict",
+    "WrapperConfig",
     "aggregate_dataset",
+    "claude_code_agent",
+    "codex_agent",
     "compute_run_metrics",
+    "gemini_agent",
     "generate_criteria",
+    "read_prompt",
 ]

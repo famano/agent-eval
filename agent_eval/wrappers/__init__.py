@@ -1,14 +1,27 @@
-"""Model wrapper agents for Claude, OpenAI/Codex, and Google Gemini."""
+"""Model wrapper agents for shell-based CLI tools."""
 
-from .base import WrapperConfig, read_input_dir
-from .claude import ClaudeWrapperAgent
-from .codex import CodexWrapperAgent
-from .gemini import GeminiWrapperAgent
+from .base import (
+    WrapperConfig,
+    make_input_readonly,
+    read_prompt,
+    restore_permissions,
+)
+from .shell import (
+    ShellAgentConfig,
+    ShellWrapperAgent,
+    claude_code_agent,
+    codex_agent,
+    gemini_agent,
+)
 
 __all__ = [
-    "ClaudeWrapperAgent",
-    "CodexWrapperAgent",
-    "GeminiWrapperAgent",
+    "ShellAgentConfig",
+    "ShellWrapperAgent",
     "WrapperConfig",
-    "read_input_dir",
+    "claude_code_agent",
+    "codex_agent",
+    "gemini_agent",
+    "make_input_readonly",
+    "read_prompt",
+    "restore_permissions",
 ]
