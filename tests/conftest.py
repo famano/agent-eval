@@ -1,32 +1,34 @@
 """Shared fixtures for agent_eval tests."""
+
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 import pytest
 
 from agent_eval.models import (
     Criterion,
+    CriterionResult,
     Dataset,
     EvalError,
     EvaluationResult,
-    CriterionResult,
     RunResult,
     RunStatus,
     Verdict,
 )
 
-
 # ---------------------------------------------------------------------------
 # Filesystem helpers
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture()
 def tmp_input_dir(tmp_path: Path) -> Path:
     d = tmp_path / "input"
     d.mkdir()
-    (d / "source.txt").write_text("Widget Corp acquired Acme Inc for $50M.", encoding="utf-8")
+    (d / "source.txt").write_text(
+        "Widget Corp acquired Acme Inc for $50M.", encoding="utf-8"
+    )
     return d
 
 
@@ -66,6 +68,7 @@ def output_file(tmp_path: Path) -> Path:
 # Criteria
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture()
 def must_criterion() -> Criterion:
     return Criterion(
@@ -97,6 +100,7 @@ def criteria(must_criterion: Criterion, should_criterion: Criterion) -> list[Cri
 # Dataset
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture()
 def dataset(
     tmp_input_dir: Path,
@@ -116,6 +120,7 @@ def dataset(
 # ---------------------------------------------------------------------------
 # Pre-built EvaluationResult helpers
 # ---------------------------------------------------------------------------
+
 
 def make_eval_result(
     dataset_id: str = "ds-test-001",
