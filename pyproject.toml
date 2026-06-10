@@ -11,8 +11,10 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-docx = ["python-docx>=1.1"]
-pdf  = ["pdfminer.six>=20221105"]
+docx   = ["python-docx>=1.1"]
+pdf    = ["pdfminer.six>=20221105"]
+openai = ["openai>=1.0"]
+gemini = ["google-generativeai>=0.8"]
 
 [tool.setuptools.packages.find]
 where = ["."]

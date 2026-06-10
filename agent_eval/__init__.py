@@ -1,5 +1,6 @@
 """agent_eval — LLM agent evaluation framework."""
 from .agent import Agent, AgentMetadata
+from .wrappers import ClaudeWrapperAgent, CodexWrapperAgent, GeminiWrapperAgent, WrapperConfig
 from .criteria_generator import generate_criteria
 from .evaluator import CalibrationResult, LLMEvaluator
 from .models import (
@@ -25,6 +26,10 @@ from .scoring import (
 __all__ = [
     "Agent",
     "AgentMetadata",
+    "ClaudeWrapperAgent",
+    "CodexWrapperAgent",
+    "GeminiWrapperAgent",
+    "WrapperConfig",
     "CalibrationResult",
     "Criterion",
     "CriterionResult",
