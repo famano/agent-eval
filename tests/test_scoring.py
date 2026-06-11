@@ -530,3 +530,88 @@ class TestSuiteReport:
             suite.print_summary()
         # tags "legal" and "financial" should appear
         assert "legal" in buf.getvalue() or "financial" in buf.getvalue()
+
+    def test_print_summary_shows_overall_for_multiple_datasets(
+        self, simple_dataset: Dataset, tmp_path: Path, two_criteria: list[Criterion]
+    ) -> None:
+        """Design §6.3: overall supplementary aggregate shown when >1 dataset."""
+        all_met = {"c_must": Verdict.MET, "c_should": Verdict.MET}
+        report1 = _build_report(simple_dataset, [all_met] * 2)
+        # build a second dataset
+        inp2 = tmp_path / "input2"
+        inp2.mkdir()
+        ref2 = tmp_path / "ref2.txt"
+        ref2.write_text("ref2", encoding="utf-8")
+        ds2 = Dataset(
+            id="ds-score-002",
+            input_dir=inp2,
+            reference_files=[ref2],
+            criteria=two_criteria,
+        )
+        report2 = _build_report(ds2, [all_met] * 2)
+        stats1 = aggregate_dataset(report1, simple_dataset, n_bootstrap=50)
+        stats2 = aggregate_dataset(report2, ds2, n_bootstrap=50)
+        suite = SuiteReport(dataset_stats=[stats1, stats2])
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            suite.print_summary()
+        assert "overall" in buf.getvalue()
+
+    def test_print_summary_no_overall_for_single_dataset(
+        self, simple_dataset: Dataset
+    ) -> None:
+        """Design §6.3: overall line only appears when there are multiple datasets."""
+        all_met = {"c_must": Verdict.MET, "c_should": Verdict.MET}
+        report = _build_report(simple_dataset, [all_met] * 3)
+        stats = aggregate_dataset(report, simple_dataset, n_bootstrap=50)
+        suite = SuiteReport(dataset_stats=[stats])
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            suite.print_summary()
+        assert "overall" not in buf.getvalue()
+
+
+# ---------------------------------------------------------------------------
+# tool_calls distribution (design §6.2)
+# ---------------------------------------------------------------------------
+
+
+class TestToolCallsStats:
+    def test_tool_calls_stats_populated(
+        self, simple_dataset: Dataset, two_criteria: list[Criterion]
+    ) -> None:
+        """Design §6.2: tool_calls distribution must be reported alongside cost/latency."""
+        all_met = {"c_must": Verdict.MET, "c_should": Verdict.MET}
+        report = DatasetReport(
+            dataset_id=simple_dataset.id,
+            n_requested=3,
+        )
+        for i in range(3):
+            rr = make_run_result(tool_calls=i + 1)
+            report.runs.append(rr)
+            report.eval_results.append(
+                make_eval_result(dataset_id=simple_dataset.id, run_index=i, verdicts=all_met)
+            )
+        stats = aggregate_dataset(report, simple_dataset, n_bootstrap=50)
+        assert stats.tool_calls_stats, "tool_calls_stats should not be empty"
+        assert "mean" in stats.tool_calls_stats
+        assert "min" in stats.tool_calls_stats
+        assert "max" in stats.tool_calls_stats
+
+    def test_tool_calls_stats_correct_mean(
+        self, simple_dataset: Dataset
+    ) -> None:
+        """tool_calls mean should match average of run tool_calls values."""
+        all_met = {"c_must": Verdict.MET, "c_should": Verdict.MET}
+        report = DatasetReport(
+            dataset_id=simple_dataset.id,
+            n_requested=3,
+        )
+        for i, tc in enumerate([2, 4, 6]):
+            rr = make_run_result(tool_calls=tc)
+            report.runs.append(rr)
+            report.eval_results.append(
+                make_eval_result(dataset_id=simple_dataset.id, run_index=i, verdicts=all_met)
+            )
+        stats = aggregate_dataset(report, simple_dataset, n_bootstrap=50)
+        assert math.isclose(stats.tool_calls_stats["mean"], 4.0)

@@ -132,6 +132,7 @@ class DatasetStats:
     per_tag_coverage: dict[str, CoverageStats] = field(default_factory=dict)
     cost_stats: dict[str, float] = field(default_factory=dict)
     latency_stats: dict[str, float] = field(default_factory=dict)
+    tool_calls_stats: dict[str, float] = field(default_factory=dict)
 
 
 def aggregate_dataset(
@@ -219,9 +220,10 @@ def aggregate_dataset(
             mean=tmean, std=tstd, ci_low=tlo, ci_high=thi, n=len(scores)
         )
 
-    # Cost / latency distribution summaries
+    # Cost / latency / tool_calls distribution summaries
     costs = [m.cost_usd for m in metrics if m.cost_usd is not None]
     latencies = [m.latency_s for m in metrics if m.latency_s is not None]
+    tool_calls_list = [float(m.tool_calls) for m in metrics if m.tool_calls is not None]
 
     def _summary(vals: list[float]) -> dict[str, float]:
         if not vals:
@@ -255,6 +257,7 @@ def aggregate_dataset(
         per_tag_coverage=per_tag,
         cost_stats=_summary(costs),
         latency_stats=_summary(latencies),
+        tool_calls_stats=_summary(tool_calls_list),
     )
 
 
@@ -281,3 +284,17 @@ class SuiteReport:
             if ds.per_tag_coverage:
                 for tag, tc in ds.per_tag_coverage.items():
                     print(f"  tag:{tag} coverage={tc.mean:.3f} (n={tc.n})")
+
+        # Overall supplementary aggregate across all datasets
+        evaluated = [ds for ds in self.dataset_stats if ds.n_runs_evaluated > 0]
+        if len(evaluated) > 1:
+            all_covs = [ds.coverage.mean for ds in evaluated]
+            overall_mean = sum(all_covs) / len(all_covs)
+            overall_critical = sum(ds.critical_error_rate for ds in evaluated) / len(evaluated)
+            total_infra = sum(ds.n_infra_failures for ds in self.dataset_stats)
+            print(
+                f"[overall ({len(evaluated)} datasets)] "
+                f"coverage_mean={overall_mean:.3f} | "
+                f"critical_error_rate={overall_critical:.1%} | "
+                f"total_infra_failures={total_infra}"
+            )

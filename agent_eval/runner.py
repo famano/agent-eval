@@ -22,6 +22,8 @@ class DatasetReport:
     runs: list[RunResult] = field(default_factory=list)
     eval_results: list[EvaluationResult] = field(default_factory=list)
     infra_failures: list[dict[str, object]] = field(default_factory=list)
+    agent_metadata: dict[str, object] = field(default_factory=dict)
+    evaluator_metadata: dict[str, object] = field(default_factory=dict)
 
 
 class Iterator:
@@ -45,10 +47,27 @@ class Iterator:
         evaluator: LLMEvaluator,
         n_repeats: int,
         max_infra_retries: int = 2,
+        evaluate_timeout: bool = False,
     ) -> DatasetReport:
+        agent_meta = agent.metadata()
+        evaluator_meta = {
+            "model": evaluator.model,
+            "n_samples": evaluator.n_samples,
+            "calibration_threshold": evaluator.calibration_threshold,
+        }
         report = DatasetReport(
             dataset_id=dataset.id,
             n_requested=n_repeats,
+            agent_metadata={
+                "model": agent_meta.model,
+                "sdk_version": agent_meta.sdk_version,
+                "tools": agent_meta.tools,
+                "skills": agent_meta.skills,
+                "temperature": agent_meta.temperature,
+                "seed": agent_meta.seed,
+                **agent_meta.extra,
+            },
+            evaluator_metadata=evaluator_meta,
         )
 
         for run_index in range(n_repeats):
@@ -57,6 +76,8 @@ class Iterator:
                 agent=agent,
                 run_index=run_index,
                 max_infra_retries=max_infra_retries,
+                agent_metadata=report.agent_metadata,
+                evaluator_metadata=evaluator_meta,
             )
 
             if run_result is None:
@@ -73,7 +94,12 @@ class Iterator:
 
             report.runs.append(run_result)
 
-            if run_result.status == RunStatus.SUCCESS:
+            should_evaluate = run_result.status == RunStatus.SUCCESS or (
+                evaluate_timeout
+                and run_result.status in (RunStatus.TIMEOUT, RunStatus.BUDGET_EXCEEDED)
+            )
+
+            if should_evaluate:
                 eval_result = evaluator.evaluate(
                     output_files=run_result.output_files,
                     reference_files=dataset.reference_files,
@@ -106,6 +132,8 @@ class Iterator:
         agent: Agent,
         run_index: int,
         max_infra_retries: int,
+        agent_metadata: dict[str, object] | None = None,
+        evaluator_metadata: dict[str, object] | None = None,
     ) -> tuple[RunResult | None, Path | None]:
         for attempt in range(max_infra_retries + 1):
             output_dir = self._make_output_dir(dataset.id, run_index, attempt)
@@ -146,7 +174,12 @@ class Iterator:
                         )
                         return None, None
 
-                self._save_trajectory(result, output_dir)
+                self._save_trajectory(
+                    result,
+                    output_dir,
+                    agent_metadata=agent_metadata,
+                    evaluator_metadata=evaluator_metadata,
+                )
                 return result, output_dir
 
             except Exception as exc:
@@ -170,9 +203,15 @@ class Iterator:
         dir_path.mkdir(parents=True, exist_ok=True)
         return dir_path
 
-    def _save_trajectory(self, result: RunResult, output_dir: Path) -> None:
+    def _save_trajectory(
+        self,
+        result: RunResult,
+        output_dir: Path,
+        agent_metadata: dict[str, object] | None = None,
+        evaluator_metadata: dict[str, object] | None = None,
+    ) -> None:
         trajectory_path = output_dir / "_trajectory.json"
-        data = {
+        data: dict[str, object] = {
             "status": result.status.value,
             "cost_usd": result.cost_usd,
             "latency_s": result.latency_s,
@@ -180,6 +219,15 @@ class Iterator:
             "tool_calls": result.tool_calls,
             "output_files": [str(p) for p in result.output_files],
         }
-        trajectory_path.write_text(json.dumps(data, ensure_ascii=False, indent=2))
+        if agent_metadata:
+            data["agent_metadata"] = agent_metadata
+        if evaluator_metadata:
+            data["evaluator_metadata"] = evaluator_metadata
+        def _default(o: object) -> str:
+            return str(o)
+
+        trajectory_path.write_text(
+            json.dumps(data, ensure_ascii=False, indent=2, default=_default)
+        )
         if result.trajectory_ref is None:
             result.trajectory_ref = trajectory_path

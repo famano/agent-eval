@@ -20,6 +20,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from agent_eval.agent import AgentMetadata
 from agent_eval.models import (
     Criterion,
     CriterionResult,
@@ -39,11 +40,8 @@ from agent_eval.runner import Iterator
 class AlwaysSucceedAgent:
     """Writes a single file and returns SUCCESS."""
 
-    def metadata(self) -> MagicMock:
-        m = MagicMock()
-        m.model = "stub"
-        m.sdk_version = "0.0"
-        return m
+    def metadata(self) -> AgentMetadata:
+        return AgentMetadata(model="stub-model", sdk_version="0.0.1", temperature=0.0, seed=42)
 
     def run(
         self, input_dir: Path, output_dir: Path, timeout_s: int, budget_usd: float
@@ -491,3 +489,107 @@ class TestDatasetReport:
         traj = successful[0].trajectory_ref
         assert traj is not None
         assert traj.exists()
+
+    def test_agent_metadata_recorded_in_report(
+        self, tmp_path: Path, simple_dataset: Dataset
+    ) -> None:
+        """Design §7: AgentMetadata (model/seed/temperature) must be recorded."""
+        runner = Iterator(output_root=tmp_path / "runs")
+        report = runner.run(
+            simple_dataset, AlwaysSucceedAgent(), _make_stub_evaluator(), n_repeats=1
+        )
+        assert report.agent_metadata["model"] == "stub-model"
+        assert report.agent_metadata["sdk_version"] == "0.0.1"
+        assert report.agent_metadata["seed"] == 42
+        assert report.agent_metadata["temperature"] == 0.0
+
+    def test_agent_metadata_in_trajectory_json(
+        self, tmp_path: Path, simple_dataset: Dataset
+    ) -> None:
+        """Design §7: trajectory JSON must include agent metadata for reproducibility."""
+        import json
+
+        runner = Iterator(output_root=tmp_path / "runs")
+        report = runner.run(
+            simple_dataset, AlwaysSucceedAgent(), _make_stub_evaluator(), n_repeats=1
+        )
+        traj_path = report.runs[0].trajectory_ref
+        assert traj_path is not None
+        data = json.loads(traj_path.read_text())
+        assert "agent_metadata" in data
+        assert data["agent_metadata"]["model"] == "stub-model"
+
+    def test_evaluator_metadata_recorded_in_report(
+        self, tmp_path: Path, simple_dataset: Dataset
+    ) -> None:
+        """Design §7: judge model/sampling settings must be recorded alongside results."""
+        evaluator = _make_stub_evaluator()
+        evaluator.model = "judge-model"
+        evaluator.n_samples = 3
+        evaluator.calibration_threshold = 0.9
+        runner = Iterator(output_root=tmp_path / "runs")
+        report = runner.run(simple_dataset, AlwaysSucceedAgent(), evaluator, n_repeats=1)
+        assert report.evaluator_metadata["model"] == "judge-model"
+        assert report.evaluator_metadata["n_samples"] == 3
+        assert report.evaluator_metadata["calibration_threshold"] == 0.9
+
+    def test_evaluator_metadata_in_trajectory_json(
+        self, tmp_path: Path, simple_dataset: Dataset
+    ) -> None:
+        """Design §7: trajectory JSON must include evaluator metadata."""
+        import json
+
+        evaluator = _make_stub_evaluator()
+        evaluator.model = "judge-model"
+        evaluator.n_samples = 2
+        evaluator.calibration_threshold = 0.95
+        runner = Iterator(output_root=tmp_path / "runs")
+        report = runner.run(simple_dataset, AlwaysSucceedAgent(), evaluator, n_repeats=1)
+        traj_path = report.runs[0].trajectory_ref
+        assert traj_path is not None
+        data = json.loads(traj_path.read_text())
+        assert "evaluator_metadata" in data
+        assert data["evaluator_metadata"]["model"] == "judge-model"
+
+
+class TestEvaluateTimeout:
+    def test_timeout_not_evaluated_by_default(
+        self, tmp_path: Path, simple_dataset: Dataset
+    ) -> None:
+        """Design §5.4: TIMEOUT runs are recorded but not evaluated by default."""
+        runner = Iterator(output_root=tmp_path / "runs")
+        report = runner.run(
+            simple_dataset, AlwaysTimeoutAgent(), _make_stub_evaluator(), n_repeats=2
+        )
+        assert len(report.runs) == 2
+        assert all(r.status == RunStatus.TIMEOUT for r in report.runs)
+        assert len(report.eval_results) == 0
+
+    def test_timeout_evaluated_when_opted_in(
+        self, tmp_path: Path, simple_dataset: Dataset
+    ) -> None:
+        """Design §5.4: TIMEOUT evaluation is optional (方針で選択)."""
+        runner = Iterator(output_root=tmp_path / "runs")
+        report = runner.run(
+            simple_dataset,
+            AlwaysTimeoutAgent(),
+            _make_stub_evaluator(),
+            n_repeats=2,
+            evaluate_timeout=True,
+        )
+        assert len(report.runs) == 2
+        assert len(report.eval_results) == 2
+
+    def test_budget_exceeded_evaluated_when_opted_in(
+        self, tmp_path: Path, simple_dataset: Dataset
+    ) -> None:
+        """Design §5.4: BUDGET_EXCEEDED evaluation is optional."""
+        runner = Iterator(output_root=tmp_path / "runs")
+        report = runner.run(
+            simple_dataset,
+            AlwaysBudgetAgent(),
+            _make_stub_evaluator(),
+            n_repeats=1,
+            evaluate_timeout=True,
+        )
+        assert len(report.eval_results) == 1
