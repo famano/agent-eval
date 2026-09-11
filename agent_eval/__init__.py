@@ -22,6 +22,15 @@ from .scoring import (
     aggregate_dataset,
     compute_run_metrics,
 )
+from .wrappers import (
+    ShellAgentConfig,
+    ShellWrapperAgent,
+    WrapperConfig,
+    claude_code_agent,
+    codex_agent,
+    gemini_agent,
+    read_prompt,
+)
 
 __all__ = [
     "Agent",
@@ -40,9 +49,16 @@ __all__ = [
     "RunMetrics",
     "RunResult",
     "RunStatus",
+    "ShellAgentConfig",
+    "ShellWrapperAgent",
     "SuiteReport",
     "Verdict",
+    "WrapperConfig",
     "aggregate_dataset",
+    "claude_code_agent",
+    "codex_agent",
     "compute_run_metrics",
+    "gemini_agent",
     "generate_criteria",
+    "read_prompt",
 ]

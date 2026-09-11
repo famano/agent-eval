@@ -108,18 +108,82 @@ stats = aggregate_dataset(report, dataset, coverage_threshold=0.7)
 SuiteReport(dataset_stats=[stats]).print_summary()
 ```
 
+## エージェントのラッパー
+
+### シェルラッパー（推奨）
+
+`ShellWrapperAgent` は Claude Code, Codex CLI, Gemini CLI などの実際のエージェントを subprocess で呼び出します。
+
+```python
+from agent_eval import claude_code_agent, codex_agent, gemini_agent
+
+agent = claude_code_agent(model="claude-sonnet-4-6")  # Claude Code CLI
+agent = codex_agent(model="gpt-4o")                    # OpenAI Codex CLI
+agent = gemini_agent(model="gemini-1.5-pro")           # Google Gemini CLI
+```
+
+`ShellAgentConfig` で細かく制御できます:
+
+```python
+from agent_eval import ShellAgentConfig, ShellWrapperAgent
+
+agent = ShellWrapperAgent(ShellAgentConfig(
+    command=["claude", "--print"],
+    model="claude-sonnet-4-6",
+    print_mode=True,           # stdout → response.txt（デフォルト）
+    readonly_input=True,       # input_dir を read-only 化（Unix のみ）
+    extra_args=["--allowed-directories", f"{input_dir},{output_dir}"],
+))
+```
+
+### prompt.md 規約
+
+各評価データセットの `input_dir` ルートに **`prompt.md`** を配置します。これがエージェントへのタスク記述の唯一の入力元です。
+
+```
+input_dir/
+├── prompt.md        ← タスク記述（必須）
+├── document_a.pdf   ← エージェントが参照する入力データ（任意）
+└── data/
+    └── records.csv
+```
+
+### サンドボックス設定
+
+エージェントが正解ファイルを盗み見たり入力データを改ざんしないよう 2 層の保護があります:
+
+**1. ツールレベル制限（Claude Code）**: `--allowed-directories` で読み書き可能なディレクトリを限定します（インターネット検索は制限しません）:
+
+```python
+agent = claude_code_agent(
+    extra_args=["--allowed-directories", f"{input_dir},{output_dir}"],
+)
+```
+
+**2. ファイルシステムレベル（Unix のみ）**: `readonly_input=True`（デフォルト）で `input_dir` 内のファイルを `chmod 444` に設定し、エージェントが書き込もうとすると `Permission denied` になります。実行後は自動的に元の権限に戻します。
+
+### 出力モード
+
+| `print_mode` | 動作 |
+|---|---|
+| `True`（デフォルト）| subprocess の stdout を `output_dir/response.txt` に保存 |
+| `False` | エージェントが `output_dir` にファイルを直接書き込む。プロンプトに出力先を自動追記し `OUTPUT_DIR` 環境変数もセット |
+
 ## リポジトリ構成
 
 ```
 agent_eval/
-  models.py      # データクラス (Criterion, Dataset, RunResult, EvaluationResult など)
-  agent.py       # Agent プロトコル定義
-  llm.py         # LLMClient プロトコルと AnthropicClient 実装
-  evaluator.py   # LLMEvaluator (ジャッジ + キャリブレーション)
-  runner.py      # Iterator (N回実行のオーケストレーション)
-  scoring.py     # メトリクス集計 (coverage, pass@k, bootstrap CI)
-tests/           # pytest テスト
-example.py       # 動作サンプル
+  models.py        # データクラス (Criterion, Dataset, RunResult, EvaluationResult など)
+  agent.py         # Agent プロトコル定義
+  llm.py           # LLMClient プロトコルと AnthropicClient 実装
+  evaluator.py     # LLMEvaluator (ジャッジ + キャリブレーション)
+  runner.py        # Iterator (N回実行のオーケストレーション)
+  scoring.py       # メトリクス集計 (coverage, pass@k, bootstrap CI)
+  wrappers/
+    base.py        # WrapperConfig、read_prompt()、chmod ユーティリティ
+    shell.py       # ShellWrapperAgent と factory 関数
+tests/             # pytest テスト
+example.py         # 動作サンプル
 ```
 
 ## カスタム LLM クライアント

@@ -251,3 +251,96 @@ class Iterator:
 - **キャリブレーション**: 正解ファイル自身を採点させ、評価器・観点の妥当性を確認する前段ゲート。
 - **網羅性 / coverage**: 重み付き充足率（recall 的指標）。
 - **健全性**: 矛盾・無裏付け・形式違反など誤りの少なさ（precision 的指標）。
+
+---
+
+## 10. プロンプト規約（prompt.md）
+
+各評価データセットの `input_dir` ルートには **`prompt.md`** を必ず配置する。これがエージェントへのタスク記述の唯一の入力元となる。
+
+```
+input_dir/
+├── prompt.md        ← タスク記述（必須）
+├── document_a.pdf   ← エージェントが参照できる入力データ（任意）
+└── data/
+    └── records.csv
+```
+
+- フレームワークは `prompt.md` のみを読んでエージェントに渡す。他のファイルはエージェントが直接ファイルシステムから読む（shell ラッパーの場合、`cwd=input_dir` で実行されるため相対パスで参照可能）。
+- `prompt.md` はタスクの「仕様書」であり、正解ファイル（`reference_files`）とは別物。正解ファイルはエージェントに見せない。
+- データセット設計者は `prompt.md` にタスク説明・制約・出力フォーマット指定等を記載する。
+
+## 11. シェル呼び出しエージェント（ShellWrapperAgent）
+
+`ShellWrapperAgent` は外部 CLI ツール（Claude Code, Codex CLI, Gemini CLI 等）を subprocess で呼び出し、その出力を評価フレームワークに橋渡しするアダプタである。
+
+### 設定（ShellAgentConfig）
+
+| フィールド | 説明 | デフォルト |
+|---|---|---|
+| `command` | 実行コマンドリスト。例: `["claude", "--print"]` | 必須 |
+| `model` | メタデータ記録用のモデル識別子 | 必須 |
+| `tools` | メタデータ記録用のツール名リスト | `[]` |
+| `skills` | メタデータ記録用のスキルラベル | `[]` |
+| `env` | subprocess に追加する環境変数 | `{}` |
+| `readonly_input` | `True`: 実行前に `input_dir` を read-only にする（Unix のみ有効） | `True` |
+| `print_mode` | `True`: stdout → `response.txt`。`False`: `output_dir` 配下ファイルを収集 | `True` |
+| `output_dir_env_var` | `output_dir` パスを渡す環境変数名 | `"OUTPUT_DIR"` |
+| `extra_args` | `command` に追加する引数 | `[]` |
+
+### 出力収集モード
+
+**print_mode=True（デフォルト）**:
+- subprocess の stdout が `output_dir/response.txt` に書き込まれる
+- Claude Code の `--print` フラグと組み合わせて使用する
+
+```python
+agent = claude_code_agent(model="claude-sonnet-4-6")
+# → claude --print --model claude-sonnet-4-6 < prompt.md
+```
+
+**print_mode=False（ファイル出力モード）**:
+- エージェントが `output_dir` にファイルを書き込む
+- フレームワークはプロンプト末尾に `Write all output files to: <output_dir>` を自動追記
+- `OUTPUT_DIR` 環境変数も同時にセットされる
+
+```python
+agent = claude_code_agent(model="claude-sonnet-4-6", print_mode=False)
+```
+
+### ファクトリ関数
+
+```python
+from agent_eval import claude_code_agent, codex_agent, gemini_agent
+
+agent = claude_code_agent(model="claude-sonnet-4-6")   # Claude Code CLI
+agent = codex_agent(model="gpt-4o")                     # OpenAI Codex CLI
+agent = gemini_agent(model="gemini-1.5-pro")            # Google Gemini CLI
+```
+
+## 12. サンドボックスと入力保護
+
+評価の公正性を保つため、エージェントが「正解ファイルを盗み見る」「入力データを改ざんする」ことを防ぐ 2 層の保護を設ける。
+
+### 層 1: ツールレベルの access restriction（主要手段）
+
+Claude Code は `--allowed-directories` フラグで、エージェントのツール（Read/Write/Edit 等）がアクセスできるディレクトリを制限できる。`input_dir` と `output_dir` のみを許可することで、正解ファイルや他のシステムリソースへのアクセスを遮断する。インターネット検索（WebSearch ツール）は制限しない。
+
+```python
+agent = claude_code_agent(
+    model="claude-sonnet-4-6",
+    extra_args=["--allowed-directories", f"{input_dir},{output_dir}"],
+)
+```
+
+他の CLI ツールでも同等のフラグが提供されている場合は `extra_args` で指定する。
+
+### 層 2: ファイルシステムレベルの保護（補助手段・Unix のみ）
+
+`ShellAgentConfig(readonly_input=True)`（デフォルト）を設定すると、subprocess 実行前に `input_dir` 配下の全ファイルが `chmod 444`、ディレクトリが `chmod 555` になる。これにより、エージェントが直接ファイル書き込みを試みても `Permission denied` になる。実行後は `finally` ブロックで元の権限を復元する。
+
+**注意**: `readonly_input` は Windows では no-op。Windows 環境での完全な保護が必要な場合は Docker 等のコンテナを使用すること。
+
+### 正解ファイルの保護
+
+`reference_files` は `input_dir` の外に置き、`Dataset` オブジェクトが直接パスで参照する。エージェントには渡されないため、上記のアクセス制限と組み合わせれば参照されることはない。
